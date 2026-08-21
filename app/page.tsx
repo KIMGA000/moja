@@ -1,19 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  ANNOUNCEMENTS,
-  BOOKMARK_STORAGE_KEY,
-  INTEREST_LABEL,
-  INTEREST_OPTIONS,
-  PROTECTION_STATUS_LABEL,
-  matchAnnouncements,
-  type Announcement,
-  type Interest,
-  type ProtectionStatus,
-  type Region,
-} from "./data/jaripMatch";
 import {
   API_SAMPLE_ITEMS,
   SOURCE_LABEL,
@@ -28,27 +16,13 @@ import {
   GHOST_BUTTON_ON_CARD,
   GHOST_BUTTON_ON_DARK,
   PRIMARY_BUTTON,
-  PRIMARY_BUTTON_DISABLED,
-  choiceButtonStyle,
   pillBadge,
 } from "./theme";
 
-type Screen =
-  | "landing"
-  | "profile"
-  | "result"
-  | "bookmarks"
-  | "apiPreview"
-  | "eligOnboarding"
-  | "eligResult";
+type Screen = "landing" | "apiPreview" | "eligOnboarding" | "eligResult";
 
 export default function Home() {
   const [screen, setScreen] = useState<Screen>("landing");
-  const [region, setRegion] = useState<Region | null>(null);
-  const [status, setStatus] = useState<ProtectionStatus | null>(null);
-  const [interests, setInterests] = useState<Interest[]>([]);
-  const [bookmarks, setBookmarks] = useState<string[]>([]);
-  const [loaded, setLoaded] = useState(false);
 
   const [apiFilteredItems, setApiFilteredItems] = useState<WelfareItem[] | null>(null);
   const [apiYouthItems, setApiYouthItems] = useState<WelfareItem[] | null>(null);
@@ -69,49 +43,7 @@ export default function Home() {
   const [eligError, setEligError] = useState<string | null>(null);
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
-  useEffect(() => {
-    const saved = localStorage.getItem(BOOKMARK_STORAGE_KEY);
-    if (saved) {
-      try {
-        setBookmarks(JSON.parse(saved) as string[]);
-      } catch {
-        setBookmarks([]);
-      }
-    }
-    setLoaded(true);
-  }, []);
-
-  useEffect(() => {
-    if (!loaded) return;
-    localStorage.setItem(BOOKMARK_STORAGE_KEY, JSON.stringify(bookmarks));
-  }, [bookmarks, loaded]);
-
-  const results = useMemo(() => {
-    if (!region || !status) return [];
-    return matchAnnouncements({ region, status, interests });
-  }, [region, status, interests]);
-
-  const bookmarkedAnnouncements = useMemo(
-    () => ANNOUNCEMENTS.filter((a) => bookmarks.includes(a.id)),
-    [bookmarks]
-  );
-
-  const toggleBookmark = (id: string) => {
-    setBookmarks((prev) =>
-      prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]
-    );
-  };
-
-  const toggleInterest = (interest: Interest) => {
-    setInterests((prev) =>
-      prev.includes(interest) ? prev.filter((i) => i !== interest) : [...prev, interest]
-    );
-  };
-
   const restart = () => {
-    setRegion(null);
-    setStatus(null);
-    setInterests([]);
     setEligProfile(EMPTY_PROFILE);
     setScreen("landing");
   };
@@ -180,49 +112,10 @@ export default function Home() {
           padding: "28px 20px 80px",
         }}
       >
-        <TopNav
-          screen={screen}
-          bookmarkCount={bookmarks.length}
-          onHome={restart}
-          onBookmarks={() => setScreen("bookmarks")}
-        />
+        <TopNav screen={screen} onHome={restart} />
 
         {screen === "landing" && (
-          <Landing
-            onStart={() => setScreen("profile")}
-            onApiPreview={openApiPreview}
-            onEligStart={openEligOnboarding}
-          />
-        )}
-
-        {screen === "profile" && (
-          <ProfileStep
-            region={region}
-            status={status}
-            interests={interests}
-            onRegion={setRegion}
-            onStatus={setStatus}
-            onToggleInterest={toggleInterest}
-            onSubmit={() => setScreen("result")}
-          />
-        )}
-
-        {screen === "result" && region && status && (
-          <ResultScreen
-            results={results}
-            bookmarks={bookmarks}
-            onToggleBookmark={toggleBookmark}
-            onEditProfile={() => setScreen("profile")}
-            onRestart={restart}
-          />
-        )}
-
-        {screen === "bookmarks" && (
-          <BookmarksScreen
-            announcements={bookmarkedAnnouncements}
-            onToggleBookmark={toggleBookmark}
-            onBack={() => setScreen(region && status ? "result" : "landing")}
-          />
+          <Landing onApiPreview={openApiPreview} onEligStart={openEligOnboarding} />
         )}
 
         {screen === "apiPreview" && (
@@ -326,23 +219,13 @@ function SiteHeader({ onHome }: { onHome: () => void }) {
   );
 }
 
-function TopNav({
-  screen,
-  bookmarkCount,
-  onHome,
-  onBookmarks,
-}: {
-  screen: Screen;
-  bookmarkCount: number;
-  onHome: () => void;
-  onBookmarks: () => void;
-}) {
+function TopNav({ screen, onHome }: { screen: Screen; onHome: () => void }) {
   if (screen === "landing") return null;
   return (
     <div
       style={{
         display: "flex",
-        justifyContent: "space-between",
+        justifyContent: "flex-start",
         alignItems: "center",
         marginBottom: "20px",
       }}
@@ -350,19 +233,14 @@ function TopNav({
       <button onClick={onHome} style={{ ...navLinkStyle }}>
         ← 처음으로
       </button>
-      <button onClick={onBookmarks} style={navLinkStyle}>
-        ⭐ 저장한 공고 {bookmarkCount > 0 ? `(${bookmarkCount})` : ""}
-      </button>
     </div>
   );
 }
 
 function Landing({
-  onStart,
   onApiPreview,
   onEligStart,
 }: {
-  onStart: () => void;
   onApiPreview: () => void;
   onEligStart: () => void;
 }) {
@@ -409,10 +287,6 @@ function Landing({
         다시 확인해주세요.
       </p>
 
-      <button onClick={onStart} style={GHOST_BUTTON_ON_DARK}>
-        간단히 관심분야로만 공고 찾기
-      </button>
-
       <Link
         href="/community"
         style={{ ...GHOST_BUTTON_ON_DARK, display: "block", textAlign: "center", textDecoration: "none" }}
@@ -432,231 +306,6 @@ function Landing({
         }}
       >
         🔎 실시간 공공데이터 API 결과 보기
-      </button>
-    </div>
-  );
-}
-
-function ProfileStep({
-  region,
-  status,
-  interests,
-  onRegion,
-  onStatus,
-  onToggleInterest,
-  onSubmit,
-}: {
-  region: Region | null;
-  status: ProtectionStatus | null;
-  interests: Interest[];
-  onRegion: (r: Region) => void;
-  onStatus: (s: ProtectionStatus) => void;
-  onToggleInterest: (i: Interest) => void;
-  onSubmit: () => void;
-}) {
-  const canSubmit = region !== null && status !== null;
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "18px", animation: "fadeIn 0.3s" }}>
-      <div style={CARD_STYLE}>
-        <h2 style={{ fontSize: "18px", fontWeight: 800, color: COLORS.ink }}>어디에 거주하고 계신가요?</h2>
-        <div style={{ display: "flex", gap: "12px", marginTop: "14px" }}>
-          {(["seoul", "other"] as Region[]).map((r) => (
-            <button key={r} onClick={() => onRegion(r)} style={choiceButtonStyle(region === r)}>
-              {r === "seoul" ? "서울" : "그 외 지역"}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div style={CARD_STYLE}>
-        <h2 style={{ fontSize: "18px", fontWeight: 800, color: COLORS.ink }}>지금 상황에 가까운 것은?</h2>
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "14px" }}>
-          {(Object.keys(PROTECTION_STATUS_LABEL) as ProtectionStatus[]).map((s) => (
-            <button key={s} onClick={() => onStatus(s)} style={choiceButtonStyle(status === s)}>
-              {PROTECTION_STATUS_LABEL[s]}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div style={CARD_STYLE}>
-        <h2 style={{ fontSize: "18px", fontWeight: 800, color: COLORS.ink }}>
-          관심 있는 분야를 골라주세요{" "}
-          <span style={{ fontWeight: 500, fontSize: "13px", color: COLORS.inkMuted }}>
-            (복수 선택, 선택 안 하면 전체)
-          </span>
-        </h2>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginTop: "14px" }}>
-          {INTEREST_OPTIONS.map((i) => (
-            <button
-              key={i}
-              onClick={() => onToggleInterest(i)}
-              style={{ ...choiceButtonStyle(interests.includes(i)), flex: "unset", padding: "10px 16px", fontSize: "14px" }}
-            >
-              {INTEREST_LABEL[i].emoji} {INTEREST_LABEL[i].label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <button
-        onClick={onSubmit}
-        disabled={!canSubmit}
-        style={canSubmit ? PRIMARY_BUTTON : PRIMARY_BUTTON_DISABLED}
-      >
-        매칭 결과 보기
-      </button>
-    </div>
-  );
-}
-
-function ResultScreen({
-  results,
-  bookmarks,
-  onToggleBookmark,
-  onEditProfile,
-  onRestart,
-}: {
-  results: Announcement[];
-  bookmarks: string[];
-  onToggleBookmark: (id: string) => void;
-  onEditProfile: () => void;
-  onRestart: () => void;
-}) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "20px", animation: "fadeIn 0.3s" }}>
-      <section style={{ ...CARD_STYLE, textAlign: "center" }}>
-        <p style={{ fontSize: "13px", color: COLORS.inkMuted, fontWeight: 700 }}>매칭 결과</p>
-        <h2 style={{ fontSize: "24px", fontWeight: 800, color: COLORS.ink, marginTop: "8px" }}>
-          {results.length}개의 공고를 찾았어요
-        </h2>
-      </section>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-        {results.length === 0 && (
-          <section style={CARD_STYLE}>
-            <p style={{ fontSize: "14px", color: COLORS.inkMuted }}>
-              조건에 딱 맞는 공고가 없어요. 관심분야를 늘리거나 자립정보ON에서 더 찾아보세요.
-            </p>
-          </section>
-        )}
-        {results.map((a) => (
-          <AnnouncementCard
-            key={a.id}
-            announcement={a}
-            bookmarked={bookmarks.includes(a.id)}
-            onToggleBookmark={() => onToggleBookmark(a.id)}
-          />
-        ))}
-      </div>
-
-      <button onClick={onEditProfile} style={GHOST_BUTTON_ON_DARK}>
-        조건 다시 선택하기
-      </button>
-      <button onClick={onRestart} style={{ ...GHOST_BUTTON_ON_DARK, border: "none" }}>
-        처음으로
-      </button>
-    </div>
-  );
-}
-
-function AnnouncementCard({
-  announcement,
-  bookmarked,
-  onToggleBookmark,
-}: {
-  announcement: Announcement;
-  bookmarked: boolean;
-  onToggleBookmark: () => void;
-}) {
-  return (
-    <section style={CARD_STYLE}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
-        <div>
-          <p style={{ fontSize: "16px", fontWeight: 800, color: COLORS.ink }}>{announcement.name}</p>
-          <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "2px" }}>{announcement.org}</p>
-        </div>
-        <button
-          onClick={onToggleBookmark}
-          aria-label="공고 저장"
-          style={{ background: "none", border: "none", fontSize: "22px", lineHeight: 1, color: COLORS.ink }}
-        >
-          {bookmarked ? "⭐" : "☆"}
-        </button>
-      </div>
-
-      <p style={{ fontSize: "13px", color: "#3f3f46", marginTop: "10px", lineHeight: 1.6 }}>
-        {announcement.summary}
-      </p>
-
-      <div
-        style={{
-          marginTop: "12px",
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "8px",
-          fontSize: "12px",
-          color: COLORS.inkMuted,
-        }}
-      >
-        {announcement.amount && <span>💵 {announcement.amount}</span>}
-        <span>🗓 {announcement.period}</span>
-        <span>📄 {announcement.documents}</span>
-      </div>
-
-      <a
-        href={announcement.link}
-        target="_blank"
-        rel="noreferrer"
-        style={{
-          display: "inline-block",
-          marginTop: "14px",
-          fontSize: "13px",
-          fontWeight: 700,
-          color: COLORS.accentViolet,
-          textDecoration: "none",
-        }}
-      >
-        공식 안내 페이지 바로가기 →
-      </a>
-    </section>
-  );
-}
-
-function BookmarksScreen({
-  announcements,
-  onToggleBookmark,
-  onBack,
-}: {
-  announcements: Announcement[];
-  onToggleBookmark: (id: string) => void;
-  onBack: () => void;
-}) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "20px", animation: "fadeIn 0.3s" }}>
-      <h2 style={{ fontSize: "20px", fontWeight: 800, color: COLORS.onDark }}>저장한 공고</h2>
-      <p style={{ fontSize: "13px", color: COLORS.onDarkMuted }}>이 브라우저에만 저장돼요. 서버로 전송되지 않아요.</p>
-
-      {announcements.length === 0 && (
-        <section style={CARD_STYLE}>
-          <p style={{ fontSize: "14px", color: COLORS.inkMuted }}>아직 저장한 공고가 없어요.</p>
-        </section>
-      )}
-
-      <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-        {announcements.map((a) => (
-          <AnnouncementCard
-            key={a.id}
-            announcement={a}
-            bookmarked
-            onToggleBookmark={() => onToggleBookmark(a.id)}
-          />
-        ))}
-      </div>
-
-      <button onClick={onBack} style={GHOST_BUTTON_ON_DARK}>
-        ← 돌아가기
       </button>
     </div>
   );
