@@ -1,0 +1,60 @@
+{
+  "_schemaNote": "이 파일은 '제도 간 관계' 규칙만 담는다. 개별 제도의 자격조건은 policies.json에 있다. 평가 순서: 1) policies.json 조건 평가 → eligible/ineligible, 2) 이 파일의 규칙으로 eligible이었던 항목을 2차 강등(downgrade)한다. type별 의미: mutual_exclusion(둘 중 하나만 가능, 이미 받고 있으면 다른 하나는 ineligible로 강등), mutual_exclusion_exception(같은 그룹 안에서 예외적으로 병행 허용), partial_exclusion(같은 항목명이지만 특정 세부 명목만 배타).",
+  "rules": [
+    {
+      "type": "mutual_exclusion",
+      "id": "allowance-vs-other-law",
+      "if": {
+        "field": "currentSupports",
+        "op": "includes",
+        "value": "other-law-allowance"
+      },
+      "then": "self-reliance-allowance",
+      "effect": "ineligible",
+      "reason": "아동복지법 외 다른 법령에 따른 자립지원수당을 이미 받고 있어 자립수당과 중복 지급이 불가해요.",
+      "citation": "자립정보북 28쪽 [A5]"
+    },
+    {
+      "type": "partial_exclusion",
+      "id": "national-scholarship-vs-local-tuition",
+      "if": {
+        "field": "currentSupports",
+        "op": "includes",
+        "value": "national-scholarship-tuition"
+      },
+      "then": "local-tuition-support",
+      "effect": "ineligible",
+      "note": "국가장학금 중 '등록금' 명목만 지자체 등록금 지원과 배타적이다. 입학금·입학축하금·생활안정자금 명목은 중복 가능하므로 강등하지 않는다.",
+      "reason": "국가장학금으로 등록금을 이미 지원받고 있어 지자체 등록금 지원과 중복될 수 없어요. (입학금·생활안정자금은 별도이니 별도 확인해보세요)",
+      "citation": "자립정보북 87쪽 [A9, B4]",
+      "uncertaintyLabel": "입학금·입학축하금·생활안정자금은 등록금과 별개예요 — 이 항목들은 중복으로 받을 수 있는지 지자체에 따로 물어보세요."
+    },
+    {
+      "type": "mutual_exclusion",
+      "id": "asset-building-group-exclusive",
+      "group": [
+        "youth-tomorrow-savings",
+        "youth-future-savings"
+      ],
+      "if": {
+        "field": "currentSupports",
+        "op": "includesAnyOf",
+        "value": [
+          "youth-tomorrow-savings",
+          "youth-future-savings"
+        ]
+      },
+      "effect": "membersOfGroupBecomeIneligibleWithEachOther",
+      "reason": "청년내일저축계좌·청년미래적금 등 유사 자산형성지원사업은 서로 중복 참여가 불가해요.",
+      "citation": "자립정보북 64쪽 [A11]"
+    },
+    {
+      "type": "mutual_exclusion_exception",
+      "id": "stepping-stone-savings-exempt",
+      "exemptPolicy": "stepping-stone-savings",
+      "fromGroup": "asset-building-group-exclusive",
+      "reason": "디딤씨앗통장은 예외적으로 청년내일저축계좌·청년미래적금과 병행(중복 참여) 가능해요.",
+      "citation": "자립정보북 64쪽 [A11]"
+    }
+  ]
+}

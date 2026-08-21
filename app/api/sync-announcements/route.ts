@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { WelfareItem, WelfareSource } from "../../data/apiPreview";
 import { classifyItem } from "../../data/classify";
-import { createSupabaseAdminClient } from "../../../lib/supabase";
+import { TABLE_BY_SOURCE, createSupabaseAdminClient } from "../../../lib/supabase";
 import {
   CENTRAL_API_BASE,
   DUAL_TRAINING_API_BASE,
@@ -20,17 +20,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-// 소스별로 별도 테이블에 저장한다 (supabase/schema.sql 참고).
-const TABLE_BY_SOURCE: Record<WelfareSource, string> = {
-  central: "announcements_central",
-  local: "announcements_local",
-  gov24: "announcements_gov24",
-  housing: "announcements_housing",
-  training: "announcements_training",
-  jobseekerProgram: "announcements_jobseeker_program",
-  dualTraining: "announcements_dual_training",
-  youthCenter: "announcements_youth_center",
-};
+// 소스별 테이블 매핑은 lib/supabase.ts 에 하나만 둔다 (여기 복붙해두면 테이블이 추가될 때 갈라진다).
 
 function toRow(item: WelfareItem) {
   const c = classifyItem(item);

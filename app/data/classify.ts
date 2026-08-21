@@ -5,6 +5,7 @@
 
 import type { WelfareItem } from "./apiPreview";
 import { isAboutCareLeavers, isAboutYouth } from "../../lib/govApis";
+import { resolveRegionScope } from "../../lib/regions";
 import type { InterestCategory, ProtectionEndType } from "./eligibility";
 
 export type AnnouncementClassification = {
@@ -20,39 +21,8 @@ export type AnnouncementClassification = {
   protectionEndTypesApplicable: ProtectionEndType[]; // 본문에서 배제 신호가 없으면 5종 전부
 };
 
-const REGION_SHORT: Record<string, string> = {
-  서울특별시: "서울",
-  부산광역시: "부산",
-  대구광역시: "대구",
-  인천광역시: "인천",
-  광주광역시: "광주",
-  대전광역시: "대전",
-  울산광역시: "울산",
-  세종특별자치시: "세종",
-  경기도: "경기",
-  강원특별자치도: "강원",
-  충청북도: "충북",
-  충청남도: "충남",
-  전북특별자치도: "전북",
-  전라남도: "전남",
-  경상북도: "경북",
-  경상남도: "경남",
-  제주특별자치도: "제주",
-};
-const FULL_REGION_NAMES = Object.keys(REGION_SHORT);
-const ALL_REGION_TOKENS = Object.values(REGION_SHORT);
+// 지역 테이블·매칭 로직은 lib/regions.ts 로 옮겼다 (realMatch.ts 와 복붙되어 있던 것을 합침).
 
-const NATIONAL_ORG_KEYWORDS = [
-  "보건복지부",
-  "고용노동부",
-  "성평등가족부",
-  "교육부",
-  "국토교통부",
-  "한국토지주택공사",
-  "한국장학재단",
-  "아동권리보장원",
-  "여성가족부",
-];
 
 const ALL_PROTECTION_END_TYPES: ProtectionEndType[] = [
   "AGE18_END",
@@ -83,19 +53,8 @@ const THEME_TO_CATEGORY: Record<string, InterestCategory> = {
 };
 
 function extractRegionScope(item: WelfareItem): string | null {
-  const locationText = `${item.region ?? ""} ${item.org}`;
-  if (NATIONAL_ORG_KEYWORDS.some((kw) => item.org.includes(kw)) && !item.region) {
-    return null;
-  }
-  const mentionedFullNames = FULL_REGION_NAMES.filter((name) => locationText.includes(name));
-  if (mentionedFullNames.length > 0) return mentionedFullNames[0];
-
-  const mentionedTokens = ALL_REGION_TOKENS.filter((token) => locationText.includes(token));
-  if (mentionedTokens.length > 0) {
-    const fullName = Object.entries(REGION_SHORT).find(([, short]) => short === mentionedTokens[0])?.[0];
-    return fullName ?? mentionedTokens[0];
-  }
-  return null;
+  // lib/regions.ts 로 위임. 개편 전 지명(전라북도·강원도)도 여기서 정식 명칭으로 정규화된다.
+  return resolveRegionScope({ region: item.region, org: item.org });
 }
 
 function extractProtectionYearsLimit(text: string): number | null {

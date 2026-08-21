@@ -1,0 +1,21 @@
+# 줄바꿈을 저장소 기준 LF 하나로 통일한다.
+#
+# 왜 필요한가: 이 프로젝트는 Windows(팀원 로컬)와 Linux(Vercel 빌드, 자동화 도구)에서
+# 같이 만져진다. .gitattributes 가 없으면 Git 설정(core.autocrlf)이 사람마다 달라서,
+# 내용은 하나도 안 바꿨는데 파일 전체가 "수정됨"으로 뜨는 일이 생긴다.
+# 실제로 이 저장소에서 그 현상이 있었다 (Windows 체크아웃은 CRLF, 저장된 blob 은 LF).
+#
+# text=auto eol=lf → 저장소에는 항상 LF 로 저장하고, 체크아웃도 LF 로 한다.
+# VS Code 는 LF 를 문제없이 편집한다.
+* text=auto eol=lf
+
+# 바이너리는 절대 변환하지 않는다 (변환되면 파일이 깨진다).
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.pdf   binary
+*.woff  binary
+*.woff2 binary

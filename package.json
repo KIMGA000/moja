@@ -5,7 +5,12 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "qa:engine": "tsx docs/qa/engine-diff.ts",
+    "qa:adapter": "tsx docs/qa/adapt-profile.test.ts",
+    "typecheck": "tsc --noEmit",
+    "qa:catalog": "tsx docs/qa/catalog-safety.test.ts",
+    "qa": "npm run qa:engine && npm run qa:adapter && npm run qa:catalog"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
@@ -17,6 +22,12 @@
     "@types/node": "^22.10.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "tsx": "^4"
+  },
+  "overrides": {
+    "postcss": "^8.5.23",
+    "nanoid": "^3.3.18",
+    "sharp": "^0.35.0"
   }
 }
