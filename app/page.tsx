@@ -9,7 +9,10 @@ import {
   type WelfareSource,
 } from "./data/apiPreview";
 import { EMPTY_PROFILE, type OnboardingProfile } from "./data/eligibility";
-import { EligibilityOnboarding, EligibilityResultScreen } from "./components/EligibilityFlow";
+import {
+  EligibilityOnboarding,
+  EligibilityResultScreen,
+} from "./components/EligibilityFlow";
 import {
   CARD_STYLE,
   COLORS,
@@ -24,20 +27,33 @@ type Screen = "landing" | "apiPreview" | "eligOnboarding" | "eligResult";
 export default function Home() {
   const [screen, setScreen] = useState<Screen>("landing");
 
-  const [apiFilteredItems, setApiFilteredItems] = useState<WelfareItem[] | null>(null);
-  const [apiYouthItems, setApiYouthItems] = useState<WelfareItem[] | null>(null);
+  const [apiFilteredItems, setApiFilteredItems] = useState<
+    WelfareItem[] | null
+  >(null);
+  const [apiYouthItems, setApiYouthItems] = useState<WelfareItem[] | null>(
+    null,
+  );
   const [apiAllItems, setApiAllItems] = useState<WelfareItem[] | null>(null);
-  const [apiViewMode, setApiViewMode] = useState<"careLeaver" | "youth" | "all">("careLeaver");
+  const [apiViewMode, setApiViewMode] = useState<
+    "careLeaver" | "youth" | "all"
+  >("careLeaver");
   const [apiLoading, setApiLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [apiIsFallback, setApiIsFallback] = useState(false);
   const [apiCounts, setApiCounts] = useState<Record<
     WelfareSource,
-    { totalCount: number; fetchedCount: number; filteredCount: number; youthCount: number }
+    {
+      totalCount: number;
+      fetchedCount: number;
+      filteredCount: number;
+      youthCount: number;
+    }
   > | null>(null);
-  const [apiSelectedSource, setApiSelectedSource] = useState<WelfareSource | null>(null);
+  const [apiSelectedSource, setApiSelectedSource] =
+    useState<WelfareSource | null>(null);
 
-  const [eligProfile, setEligProfile] = useState<OnboardingProfile>(EMPTY_PROFILE);
+  const [eligProfile, setEligProfile] =
+    useState<OnboardingProfile>(EMPTY_PROFILE);
   const [eligItems, setEligItems] = useState<WelfareItem[] | null>(null);
   const [eligLoading, setEligLoading] = useState(false);
   const [eligError, setEligError] = useState<string | null>(null);
@@ -87,7 +103,8 @@ export default function Home() {
     fetch("/api/announcements")
       .then(async (res) => {
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "공고 데이터를 불러오지 못했어요.");
+        if (!res.ok)
+          throw new Error(data.error ?? "공고 데이터를 불러오지 못했어요.");
         setEligItems(data.items as WelfareItem[]);
       })
       .catch((err: Error) => {
@@ -110,12 +127,14 @@ export default function Home() {
           maxWidth: "640px",
           margin: "0 auto",
           padding: "28px 20px 80px",
-        }}
-      >
+        }}>
         <TopNav screen={screen} onHome={restart} />
 
         {screen === "landing" && (
-          <Landing onApiPreview={openApiPreview} onEligStart={openEligOnboarding} />
+          <Landing
+            onApiPreview={openApiPreview}
+            onEligStart={openEligOnboarding}
+          />
         )}
 
         {screen === "apiPreview" && (
@@ -173,8 +192,7 @@ function SiteHeader({ onHome }: { onHome: () => void }) {
         background: "rgba(255, 255, 255, 0.85)",
         backdropFilter: "blur(8px)",
         zIndex: 10,
-      }}
-    >
+      }}>
       <div
         style={{
           maxWidth: "640px",
@@ -183,8 +201,7 @@ function SiteHeader({ onHome }: { onHome: () => void }) {
           display: "flex",
           alignItems: "center",
           gap: "8px",
-        }}
-      >
+        }}>
         <button
           onClick={onHome}
           style={{
@@ -196,8 +213,7 @@ function SiteHeader({ onHome }: { onHome: () => void }) {
             fontSize: "15px",
             fontWeight: 800,
             color: COLORS.onDark,
-          }}
-        >
+          }}>
           <span
             style={{
               width: "26px",
@@ -208,11 +224,13 @@ function SiteHeader({ onHome }: { onHome: () => void }) {
               alignItems: "center",
               justifyContent: "center",
               fontSize: "14px",
-            }}
-          >
+            }}>
             🧭
           </span>
-          모자 <span style={{ color: COLORS.onDarkMuted, fontWeight: 600 }}>MOJA</span>
+          모자{" "}
+          <span style={{ color: COLORS.onDarkMuted, fontWeight: 600 }}>
+            MOJA
+          </span>
         </button>
       </div>
     </header>
@@ -228,8 +246,7 @@ function TopNav({ screen, onHome }: { screen: Screen; onHome: () => void }) {
         justifyContent: "flex-start",
         alignItems: "center",
         marginBottom: "20px",
-      }}
-    >
+      }}>
       <button onClick={onHome} style={{ ...navLinkStyle }}>
         ← 처음으로
       </button>
@@ -245,16 +262,36 @@ function Landing({
   onEligStart: () => void;
 }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "20px", animation: "fadeIn 0.3s" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "20px",
+        animation: "fadeIn 0.3s",
+      }}>
       <header style={{ marginTop: "12px" }}>
         <span style={pillBadge("lime")}>MOJA · 자립지원 매칭</span>
-        <h1 style={{ fontSize: "30px", fontWeight: 800, marginTop: "14px", color: COLORS.onDark, lineHeight: 1.3 }}>
+        <h1
+          style={{
+            fontSize: "30px",
+            fontWeight: 800,
+            marginTop: "14px",
+            color: COLORS.onDark,
+            lineHeight: 1.3,
+          }}>
           받을 수 있는 지원,
           <br />
           놓치지 않도록.
         </h1>
-        <p style={{ fontSize: "14px", color: COLORS.onDarkMuted, marginTop: "12px", lineHeight: 1.6 }}>
-          자립준비청년 여러분의 나이와 보호종료 후 지난 기간에 따라 지원이 갈라져요.
+        <p
+          style={{
+            fontSize: "14px",
+            color: COLORS.onDarkMuted,
+            marginTop: "12px",
+            lineHeight: 1.6,
+          }}>
+          자립준비청년 여러분의 나이와 보호종료 후 지난 기간에 따라 지원이
+          갈라져요.
           <br />
           모자가 조건에 맞는 것만 찾아 정리해드려요.
         </p>
@@ -269,29 +306,41 @@ function Landing({
             fontSize: "14px",
             color: "#3f3f46",
             listStyle: "none",
-          }}
-        >
+          }}>
           <li>✅ 12개 질문으로 21개 제도 전부 자격 판별</li>
           <li>✅ 못 받는 지원도 이유와 함께 확인</li>
           <li>✅ 중복수급 충돌 미리 경고</li>
         </ul>
       </section>
 
-      <button onClick={onEligStart} style={{ ...PRIMARY_BUTTON, padding: "19px", fontSize: "16px" }}>
+      <button
+        onClick={onEligStart}
+        style={{ ...PRIMARY_BUTTON, padding: "19px", fontSize: "16px" }}>
         내 자격 정밀 진단하기 →
       </button>
 
-      <p style={{ fontSize: "12px", color: COLORS.onDarkFaint, textAlign: "center", lineHeight: 1.6 }}>
-        이 판정은 MVP 근사치예요. 최종 자격과 기한은 반드시 담당 자립지원전담기관에서
+      <p
+        style={{
+          fontSize: "12px",
+          color: COLORS.onDarkFaint,
+          textAlign: "center",
+          lineHeight: 1.6,
+        }}>
+        이 판정은 MVP 근사치예요. 최종 자격과 기한은 반드시 담당
+        자립지원전담기관에서
         <br />
         다시 확인해주세요.
       </p>
 
       <Link
         href="/community"
-        style={{ ...GHOST_BUTTON_ON_DARK, display: "block", textAlign: "center", textDecoration: "none" }}
-      >
-        💬 커뮤니티 — 같은 처지의 이야기 나누기
+        style={{
+          ...GHOST_BUTTON_ON_DARK,
+          display: "block",
+          textAlign: "center",
+          textDecoration: "none",
+        }}>
+        💬 커뮤니티
       </Link>
 
       <button
@@ -303,8 +352,7 @@ function Landing({
           fontWeight: 700,
           color: COLORS.onDarkMuted,
           textDecoration: "underline",
-        }}
-      >
+        }}>
         🔎 실시간 공공데이터 API 결과 보기
       </button>
     </div>
@@ -335,23 +383,48 @@ function ApiPreviewScreen({
   isFallback: boolean;
   counts: Record<
     WelfareSource,
-    { totalCount: number; fetchedCount: number; filteredCount: number; youthCount: number }
+    {
+      totalCount: number;
+      fetchedCount: number;
+      filteredCount: number;
+      youthCount: number;
+    }
   > | null;
   selectedSource: WelfareSource | null;
   onSelectSource: (source: WelfareSource) => void;
   onBack: () => void;
 }) {
   const baseItems =
-    viewMode === "all" ? allItems : viewMode === "youth" ? youthItems : filteredItems;
-  const items = selectedSource ? baseItems?.filter((item) => item.source === selectedSource) : baseItems;
+    viewMode === "all"
+      ? allItems
+      : viewMode === "youth"
+        ? youthItems
+        : filteredItems;
+  const items = selectedSource
+    ? baseItems?.filter((item) => item.source === selectedSource)
+    : baseItems;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "20px", animation: "fadeIn 0.3s" }}>
-      <h2 style={{ fontSize: "20px", fontWeight: 800, color: COLORS.onDark }}>실시간 공공데이터 API 결과</h2>
-      <p style={{ fontSize: "13px", color: COLORS.onDarkMuted, lineHeight: 1.6 }}>
-        복지서비스·정부24·마이홈포털·고용24 등 7개 공공 API에서 &quot;자립&quot;·&quot;청년&quot; 두
-        키워드로 조회했어요. 아래 버튼으로 자립준비청년 관련·청년 관련·원본 전체 중 골라 볼 수
-        있고, 소스 카드를 누르면 그 소스만 따로 볼 수 있어요.
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "20px",
+        animation: "fadeIn 0.3s",
+      }}>
+      <h2 style={{ fontSize: "20px", fontWeight: 800, color: COLORS.onDark }}>
+        실시간 공공데이터 API 결과
+      </h2>
+      <p
+        style={{
+          fontSize: "13px",
+          color: COLORS.onDarkMuted,
+          lineHeight: 1.6,
+        }}>
+        복지서비스·정부24·마이홈포털·고용24 등 7개 공공 API에서
+        &quot;자립&quot;·&quot;청년&quot; 두 키워드로 조회했어요. 아래 버튼으로
+        자립준비청년 관련·청년 관련·원본 전체 중 골라 볼 수 있고, 소스 카드를
+        누르면 그 소스만 따로 볼 수 있어요.
       </p>
 
       {!loading && (
@@ -359,22 +432,27 @@ function ApiPreviewScreen({
           <button
             onClick={() => onChangeViewMode("careLeaver")}
             disabled={viewMode === "careLeaver"}
-            style={viewMode === "careLeaver" ? toggleActiveStyle : toggleInactiveStyle}
-          >
+            style={
+              viewMode === "careLeaver"
+                ? toggleActiveStyle
+                : toggleInactiveStyle
+            }>
             자립준비청년 관련만 ({filteredItems?.length ?? 0})
           </button>
           <button
             onClick={() => onChangeViewMode("youth")}
             disabled={viewMode === "youth"}
-            style={viewMode === "youth" ? toggleActiveStyle : toggleInactiveStyle}
-          >
+            style={
+              viewMode === "youth" ? toggleActiveStyle : toggleInactiveStyle
+            }>
             청년 관련만 ({youthItems?.length ?? 0})
           </button>
           <button
             onClick={() => onChangeViewMode("all")}
             disabled={viewMode === "all"}
-            style={viewMode === "all" ? toggleActiveStyle : toggleInactiveStyle}
-          >
+            style={
+              viewMode === "all" ? toggleActiveStyle : toggleInactiveStyle
+            }>
             전체 공고 ({allItems?.length ?? 0})
           </button>
         </div>
@@ -394,23 +472,53 @@ function ApiPreviewScreen({
                   padding: "14px",
                   textAlign: "left",
                   cursor: "pointer",
-                  border: active ? `1.5px solid ${COLORS.ink}` : CARD_STYLE.border,
-                }}
-              >
-                <p style={{ fontSize: "11px", color: COLORS.inkMuted, fontWeight: 700 }}>
+                  border: active
+                    ? `1.5px solid ${COLORS.ink}`
+                    : CARD_STYLE.border,
+                }}>
+                <p
+                  style={{
+                    fontSize: "11px",
+                    color: COLORS.inkMuted,
+                    fontWeight: 700,
+                  }}>
                   {SOURCE_LABEL[source]}
                 </p>
-                <p style={{ fontSize: "13px", color: "#3f3f46", marginTop: "4px" }}>
-                  전체 {counts[source].totalCount}건 중 {counts[source].fetchedCount}건 조회
+                <p
+                  style={{
+                    fontSize: "13px",
+                    color: "#3f3f46",
+                    marginTop: "4px",
+                  }}>
+                  전체 {counts[source].totalCount}건 중{" "}
+                  {counts[source].fetchedCount}건 조회
                 </p>
-                <p style={{ fontSize: "13px", color: COLORS.accentViolet, fontWeight: 700, marginTop: "2px" }}>
+                <p
+                  style={{
+                    fontSize: "13px",
+                    color: COLORS.accentViolet,
+                    fontWeight: 700,
+                    marginTop: "2px",
+                  }}>
                   → 자립준비청년 관련 {counts[source].filteredCount}건
                 </p>
-                <p style={{ fontSize: "13px", color: "#0369a1", fontWeight: 700, marginTop: "2px" }}>
+                <p
+                  style={{
+                    fontSize: "13px",
+                    color: "#0369a1",
+                    fontWeight: 700,
+                    marginTop: "2px",
+                  }}>
                   → 청년 관련 {counts[source].youthCount}건
                 </p>
                 {active && (
-                  <p style={{ fontSize: "11px", color: COLORS.ink, fontWeight: 700, marginTop: "6px" }}>
+                  <p
+                    style={{
+                      fontSize: "11px",
+                      color: COLORS.ink,
+                      fontWeight: 700,
+                      marginTop: "6px",
+                    }}>
                     이 소스만 보는 중 · 다시 누르면 해제
                   </p>
                 )}
@@ -427,8 +535,7 @@ function ApiPreviewScreen({
             border: "1px solid #fca5a5",
             borderRadius: "14px",
             padding: "14px 16px",
-          }}
-        >
+          }}>
           <p style={{ fontSize: "13px", color: "#991b1b" }}>
             실시간 호출에 실패해서 예시 데이터로 보여드려요. ({error})
           </p>
@@ -437,19 +544,26 @@ function ApiPreviewScreen({
 
       {loading && (
         <section style={CARD_STYLE}>
-          <p style={{ fontSize: "14px", color: COLORS.inkMuted }}>불러오는 중이에요...</p>
+          <p style={{ fontSize: "14px", color: COLORS.inkMuted }}>
+            불러오는 중이에요...
+          </p>
         </section>
       )}
 
       {!loading && items && items.length === 0 && (
         <section style={CARD_STYLE}>
-          <p style={{ fontSize: "14px", color: COLORS.inkMuted }}>조건에 맞는 공고가 없어요.</p>
+          <p style={{ fontSize: "14px", color: COLORS.inkMuted }}>
+            조건에 맞는 공고가 없어요.
+          </p>
         </section>
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
         {items?.map((item, index) => (
-          <ApiResultCard key={`${item.source}-${item.servId}-${index}`} item={item} />
+          <ApiResultCard
+            key={`${item.source}-${item.servId}-${index}`}
+            item={item}
+          />
         ))}
       </div>
 
@@ -460,7 +574,10 @@ function ApiPreviewScreen({
   );
 }
 
-const SOURCE_BADGE_COLOR: Record<WelfareSource, { background: string; color: string }> = {
+const SOURCE_BADGE_COLOR: Record<
+  WelfareSource,
+  { background: string; color: string }
+> = {
   central: { background: "#eef2ff", color: "#3730a3" },
   local: { background: "#ecfeff", color: "#155e75" },
   gov24: { background: "#f0fdf4", color: "#166534" },
@@ -479,35 +596,58 @@ function ApiResultCard({ item }: { item: WelfareItem }) {
       </span>
 
       <div style={{ marginTop: "10px" }}>
-        <p style={{ fontSize: "16px", fontWeight: 800, color: COLORS.ink }}>{item.servNm}</p>
-        <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "2px" }}>
+        <p style={{ fontSize: "16px", fontWeight: 800, color: COLORS.ink }}>
+          {item.servNm}
+        </p>
+        <p
+          style={{
+            fontSize: "12px",
+            color: COLORS.inkMuted,
+            marginTop: "2px",
+          }}>
           {item.org}
           {item.region && ` · ${item.region}`}
         </p>
       </div>
 
-      <p style={{ fontSize: "13px", color: "#3f3f46", marginTop: "10px", lineHeight: 1.6 }}>
+      <p
+        style={{
+          fontSize: "13px",
+          color: "#3f3f46",
+          marginTop: "10px",
+          lineHeight: 1.6,
+        }}>
         {item.servDgst}
       </p>
 
-      <div style={{ marginTop: "12px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+      <div
+        style={{
+          marginTop: "12px",
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "6px",
+        }}>
         {item.themes.map((tag) => (
           <span key={tag} style={badgeStyle}>
             #{tag}
           </span>
         ))}
         {item.lifeStages.map((stage) => (
-          <span key={stage} style={{ ...badgeStyle, background: "#f0fdf4", color: "#166534" }}>
+          <span
+            key={stage}
+            style={{ ...badgeStyle, background: "#f0fdf4", color: "#166534" }}>
             {stage}
           </span>
         ))}
         {item.targetTraits && (
-          <span style={{ ...badgeStyle, background: "#fef3c7", color: "#92400e" }}>
+          <span
+            style={{ ...badgeStyle, background: "#fef3c7", color: "#92400e" }}>
             {item.targetTraits}
           </span>
         )}
         {item.onlineApplicable && (
-          <span style={{ ...badgeStyle, background: "#eff6ff", color: "#1d4ed8" }}>
+          <span
+            style={{ ...badgeStyle, background: "#eff6ff", color: "#1d4ed8" }}>
             🖥 온라인 신청 가능
           </span>
         )}
@@ -521,8 +661,7 @@ function ApiResultCard({ item }: { item: WelfareItem }) {
           gap: "8px",
           fontSize: "12px",
           color: COLORS.inkMuted,
-        }}
-      >
+        }}>
         {item.sprtCycNm && <span>🗓 지원주기 {item.sprtCycNm}</span>}
         {item.srvPvsnNm && <span>💵 {item.srvPvsnNm}</span>}
         {item.deadline && <span>⏰ 신청기한 {item.deadline}</span>}
@@ -541,8 +680,7 @@ function ApiResultCard({ item }: { item: WelfareItem }) {
           fontWeight: 700,
           color: COLORS.accentViolet,
           textDecoration: "none",
-        }}
-      >
+        }}>
         상세 페이지 바로가기 →
       </a>
     </section>
