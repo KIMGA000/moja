@@ -1,5 +1,5 @@
 {
-  "name": "campus-axton-starter",
+  "name": "moja",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.3",
     "next": "^15.5.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"

@@ -4,6 +4,20 @@ out/
 build/
 *.log
 .env*
+!.env.local.example
 .DS_Store
 next-env.d.ts
 *.tsbuildinfo
+.vercel
+
+.vercel
+.env*
+
+# 커뮤니티 로컬 파일 DB (로컬 개발용 — 배포 환경에서는 안 씀)
+/data/community.json
+
+# 개인 로컬 권한 설정 — 이 프로젝트와 무관한 다른 작업 이력이 섞여있어 공용 저장소에는 제외
+.claude/settings.local.json
+
+.vercel
+.env*

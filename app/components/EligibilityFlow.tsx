@@ -1,0 +1,1032 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import {
+  CURRENT_STATUS_LABEL,
+  INTEREST_CATEGORY_LABEL,
+  PROGRAMS,
+  PROTECTION_END_TYPE_LABEL,
+  type CurrentStatus,
+  type InterestCategory,
+  type OnboardingProfile,
+  type ProtectionEndType,
+  type YesNoUnknown,
+} from "../data/eligibility";
+import { matchRealItems, type EvaluatedRealItem } from "../data/realMatch";
+import { SOURCE_LABEL, type WelfareItem } from "../data/apiPreview";
+import {
+  CARD_STYLE,
+  COLORS,
+  GHOST_BUTTON_ON_DARK,
+  PRIMARY_BUTTON,
+  PRIMARY_BUTTON_DISABLED,
+  choiceButtonStyle,
+  inputStyle,
+  pillBadge,
+} from "../theme";
+
+const REGIONS = [
+  "서울특별시", "부산광역시", "대구광역시", "인천광역시", "광주광역시", "대전광역시",
+  "울산광역시", "세종특별자치시", "경기도", "강원특별자치도", "충청북도", "충청남도",
+  "전북특별자치도", "전라남도", "경상북도", "경상남도", "제주특별자치도",
+];
+
+type StepId =
+  | "gate"
+  | "birth"
+  | "endType"
+  | "returnedFamily"
+  | "endDate"
+  | "status"
+  | "region"
+  | "home"
+  | "marital"
+  | "basicLivelihood"
+  | "nearPoor"
+  | "currentBenefits"
+  | "interests";
+
+const STEP_CATEGORY: Record<StepId, string> = {
+  gate: "대상 확인",
+  birth: "생년월일",
+  endType: "보호종료 유형",
+  returnedFamily: "원가정 복귀",
+  endDate: "보호종료 연월",
+  status: "현재 상태",
+  region: "거주 지역",
+  home: "주택 소유",
+  marital: "혼인 여부",
+  basicLivelihood: "기초생활수급",
+  nearPoor: "차상위 경감",
+  currentBenefits: "현재 지원",
+  interests: "관심 분야",
+};
+
+function buildStepIds(profile: OnboardingProfile): StepId[] {
+  const steps: StepId[] = ["gate", "birth", "endType"];
+  if (profile.protectionEndType === "EARLY_END") steps.push("returnedFamily");
+  steps.push(
+    "endDate",
+    "status",
+    "region",
+    "home",
+    "marital",
+    "basicLivelihood",
+    "nearPoor",
+    "currentBenefits",
+    "interests"
+  );
+  return steps;
+}
+
+// ── 날짜 계산 유틸 (Q2 자동 계산 패널용) ─────────────────────────────
+function parseYearMonth(iso: string): { year: string; month: string } {
+  if (!iso) return { year: "", month: "" };
+  const [y, m] = iso.split("-");
+  return { year: y ?? "", month: m ?? "" };
+}
+
+function parseYearMonthDay(iso: string): { year: string; month: string; day: string } {
+  if (!iso) return { year: "", month: "", day: "" };
+  const [y, m, d] = iso.split("-");
+  return { year: y ?? "", month: m ?? "", day: d ?? "" };
+}
+
+function toIsoFromYearMonth(year: string, month: string): string {
+  if (!year || !month) return "";
+  return `${year}-${month.padStart(2, "0")}-01`;
+}
+
+function toIsoFromYearMonthDay(year: string, month: string, day: string): string {
+  if (!year || !month || !day) return "";
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+function daysInMonth(year: string, month: string): number {
+  const y = Number(year);
+  const m = Number(month);
+  if (!y || !m) return 31;
+  return new Date(y, m, 0).getDate();
+}
+
+function addYearsIso(iso: string, years: number): string | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setFullYear(d.getFullYear() + years);
+  return d.toISOString().slice(0, 10);
+}
+
+function monthsBetween(fromIso: string, toIso: string | null): number | null {
+  if (!toIso) return null;
+  const from = new Date(fromIso);
+  const to = new Date(toIso);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null;
+  return (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth());
+}
+
+function formatDuration(totalMonths: number | null): string {
+  if (totalMonths === null) return "－";
+  const abs = Math.abs(totalMonths);
+  const y = Math.floor(abs / 12);
+  const m = abs % 12;
+  const label = y === 0 ? `${m}개월` : m === 0 ? `${y}년` : `${y}년 ${m}개월`;
+  return totalMonths < 0 ? `${label} 지남` : label;
+}
+
+export function EligibilityOnboarding({
+  profile,
+  todayIso,
+  onChange,
+  onSubmit,
+  onCancel,
+}: {
+  profile: OnboardingProfile;
+  todayIso: string;
+  onChange: (next: OnboardingProfile) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  const [stepIndex, setStepIndex] = useState(0);
+  const [outOfScope, setOutOfScope] = useState(false);
+  const stepIds = useMemo(() => buildStepIds(profile), [profile.protectionEndType]);
+  const stepId = stepIds[stepIndex];
+  const isLast = stepIndex === stepIds.length - 1;
+
+  const update = (patch: Partial<OnboardingProfile>) => onChange({ ...profile, ...patch });
+
+  const next = () => {
+    if (isLast) {
+      onSubmit();
+    } else {
+      setStepIndex((i) => Math.min(i + 1, stepIds.length - 1));
+    }
+  };
+  const back = () => {
+    if (outOfScope) {
+      setOutOfScope(false);
+      return;
+    }
+    if (stepIndex === 0) {
+      onCancel();
+    } else {
+      setStepIndex((i) => i - 1);
+    }
+  };
+
+  const answerGate = (yes: boolean) => {
+    update({ hasInstitutionalExperience: yes });
+    if (yes) {
+      setStepIndex(1);
+    } else {
+      setOutOfScope(true);
+    }
+  };
+
+  const canProceed = (() => {
+    switch (stepId) {
+      case "gate":
+        return false; // 게이트 질문은 버튼 클릭 즉시 진행 — 별도 "다음" 없음
+      case "birth":
+        return !!profile.birthDate;
+      case "endType":
+        return !!profile.protectionEndType;
+      case "returnedFamily":
+        return profile.returnedToBirthFamily !== null;
+      case "endDate":
+        return !!profile.protectionEndDate;
+      case "status":
+        return !!profile.currentStatus;
+      case "region":
+        return !!profile.region;
+      case "home":
+        return profile.ownsHome !== null;
+      case "marital":
+        return profile.maritalStatus !== null;
+      case "basicLivelihood":
+        return profile.basicLivelihoodRecipient !== "UNKNOWN";
+      case "nearPoor":
+        return profile.nearPoorMedicalReduction !== "UNKNOWN";
+      case "currentBenefits":
+      case "interests":
+        return true;
+      default:
+        return false;
+    }
+  })();
+
+  if (outOfScope) {
+    return <OutOfScopeScreen onBack={back} />;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "16px", animation: "fadeIn 0.25s" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "12px",
+          color: COLORS.onDarkMuted,
+          fontSize: "13px",
+          fontWeight: 700,
+        }}
+      >
+        <button onClick={back} style={backArrowStyle} aria-label="이전으로">
+          ←
+        </button>
+        <span>내 상황 {stepIndex + 1} / {stepIds.length}</span>
+      </div>
+      <div style={{ height: "5px", background: COLORS.divider, borderRadius: "999px", overflow: "hidden" }}>
+        <div
+          style={{
+            width: `${((stepIndex + 1) / stepIds.length) * 100}%`,
+            height: "100%",
+            background: COLORS.accentLime,
+            transition: "width 0.25s",
+          }}
+        />
+      </div>
+
+      {stepId === "gate" && (
+        <StepShell
+          category={STEP_CATEGORY.gate}
+          badge="violet"
+          title="보육원·그룹홈·위탁가정에서 지낸 적이 있나요?"
+        >
+          <div style={{ display: "flex", gap: "12px" }}>
+            <button onClick={() => answerGate(true)} style={choiceButtonStyle(profile.hasInstitutionalExperience === true)}>
+              예
+              <span style={subLabelStyle}>제도 판별 시작</span>
+            </button>
+            <button onClick={() => answerGate(false)} style={choiceButtonStyle(profile.hasInstitutionalExperience === false)}>
+              아니오
+              <span style={subLabelStyle}>안내 화면으로</span>
+            </button>
+          </div>
+        </StepShell>
+      )}
+      {stepId === "gate" && (
+        <p style={footerNoteStyle}>
+          이 답변에 따라 보여드릴 제도가 완전히 달라져요. 모자는 시설·가정위탁 보호 경험이 있는
+          분들을 위한 서비스라, 남은 질문은 이제 {stepIds.length - 1}개뿐이에요.
+        </p>
+      )}
+
+      {stepId === "birth" && (
+        <BirthDateStep profile={profile} todayIso={todayIso} onChange={update} />
+      )}
+
+      {stepId === "endType" && (
+        <StepShell category={STEP_CATEGORY.endType} badge="violet" title="보호종료 유형을 골라주세요">
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            {(Object.keys(PROTECTION_END_TYPE_LABEL) as ProtectionEndType[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => update({ protectionEndType: t })}
+                style={choiceButtonStyle(profile.protectionEndType === t)}
+              >
+                {PROTECTION_END_TYPE_LABEL[t]}
+              </button>
+            ))}
+          </div>
+        </StepShell>
+      )}
+
+      {stepId === "returnedFamily" && (
+        <StepShell
+          category={STEP_CATEGORY.returnedFamily}
+          badge="violet"
+          title="보호종료 후 원가정으로 복귀하셨나요?"
+          desc="조기 보호종료의 경우 이 여부에 따라 자격이 달라질 수 있어요"
+        >
+          <YesNoButtons
+            value={profile.returnedToBirthFamily}
+            onChange={(v) => update({ returnedToBirthFamily: v })}
+          />
+        </StepShell>
+      )}
+
+      {stepId === "endDate" && (
+        <EndDateStep profile={profile} todayIso={todayIso} onChange={update} />
+      )}
+
+      {stepId === "status" && (
+        <StepShell category={STEP_CATEGORY.status} badge="violet" title="현재 상태를 알려주세요">
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            {(Object.keys(CURRENT_STATUS_LABEL) as CurrentStatus[]).map((s) => (
+              <button
+                key={s}
+                onClick={() => update({ currentStatus: s })}
+                style={choiceButtonStyle(profile.currentStatus === s)}
+              >
+                {CURRENT_STATUS_LABEL[s]}
+              </button>
+            ))}
+          </div>
+        </StepShell>
+      )}
+
+      {stepId === "region" && (
+        <StepShell category={STEP_CATEGORY.region} badge="violet" title="거주 지역이 어디세요?" desc="지자체별로 다른 지원사업을 확인하기 위해서예요">
+          <select
+            value={profile.region}
+            onChange={(e) => update({ region: e.target.value })}
+            style={inputStyle}
+          >
+            <option value="">선택해주세요</option>
+            {REGIONS.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+        </StepShell>
+      )}
+
+      {stepId === "home" && (
+        <StepShell category={STEP_CATEGORY.home} badge="violet" title="주택을 소유하고 있나요?">
+          <YesNoButtons value={profile.ownsHome} onChange={(v) => update({ ownsHome: v })} />
+        </StepShell>
+      )}
+
+      {stepId === "marital" && (
+        <StepShell category={STEP_CATEGORY.marital} badge="violet" title="현재 혼인 중인가요?">
+          <YesNoButtons value={profile.maritalStatus} onChange={(v) => update({ maritalStatus: v })} />
+        </StepShell>
+      )}
+
+      {stepId === "basicLivelihood" && (
+        <StepShell category={STEP_CATEGORY.basicLivelihood} badge="violet" title="현재 기초생활수급자인가요?">
+          <YesNoUnknownButtons
+            value={profile.basicLivelihoodRecipient}
+            onChange={(v) => update({ basicLivelihoodRecipient: v })}
+            showUnknown={false}
+          />
+        </StepShell>
+      )}
+
+      {stepId === "nearPoor" && (
+        <StepShell
+          category={STEP_CATEGORY.nearPoor}
+          badge="violet"
+          title="차상위 본인부담 경감을 받고 있나요?"
+          desc="기초생활수급 다음으로 소득이 낮은 가구에게 의료비 등을 깎아주는 제도예요"
+        >
+          <YesNoUnknownButtons
+            value={profile.nearPoorMedicalReduction}
+            onChange={(v) => update({ nearPoorMedicalReduction: v })}
+            showUnknown={false}
+          />
+        </StepShell>
+      )}
+
+      {stepId === "currentBenefits" && (
+        <StepShell category={STEP_CATEGORY.currentBenefits} badge="violet" title="현재 받고 있는 지원이 있나요?" desc="복수 선택 가능해요">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+            {PROGRAMS.map((p) => {
+              const active = profile.currentBenefits.includes(p.id);
+              return (
+                <button
+                  key={p.id}
+                  onClick={() =>
+                    update({
+                      currentBenefits: active
+                        ? profile.currentBenefits.filter((id) => id !== p.id)
+                        : [...profile.currentBenefits.filter((id) => id !== "NONE"), p.id],
+                    })
+                  }
+                  style={{ ...choiceButtonStyle(active), flex: "unset", padding: "10px 16px", fontSize: "13px" }}
+                >
+                  {p.name}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => update({ currentBenefits: ["NONE"] })}
+              style={{
+                ...choiceButtonStyle(profile.currentBenefits.includes("NONE")),
+                flex: "unset",
+                padding: "10px 16px",
+                fontSize: "13px",
+              }}
+            >
+              받고 있는 지원 없음
+            </button>
+          </div>
+        </StepShell>
+      )}
+
+      {stepId === "interests" && (
+        <StepShell category={STEP_CATEGORY.interests} badge="violet" title="관심 있는 분야를 골라주세요" desc="복수 선택 가능해요">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+            {(Object.keys(INTEREST_CATEGORY_LABEL) as InterestCategory[]).map((c) => {
+              const active = profile.interestCategories.includes(c);
+              return (
+                <button
+                  key={c}
+                  onClick={() =>
+                    update({
+                      interestCategories: active
+                        ? profile.interestCategories.filter((id) => id !== c)
+                        : [...profile.interestCategories, c],
+                    })
+                  }
+                  style={{ ...choiceButtonStyle(active), flex: "unset", padding: "10px 16px", fontSize: "13px" }}
+                >
+                  {INTEREST_CATEGORY_LABEL[c]}
+                </button>
+              );
+            })}
+          </div>
+        </StepShell>
+      )}
+
+      {stepId !== "gate" && (
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button onClick={back} style={{ ...GHOST_BUTTON_ON_DARK, flex: 1 }}>
+            ← 이전
+          </button>
+          <button
+            onClick={next}
+            disabled={!canProceed}
+            style={{ ...(canProceed ? PRIMARY_BUTTON : PRIMARY_BUTTON_DISABLED), flex: 2 }}
+          >
+            {isLast ? "결과 보기" : "다음"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BirthDateStep({
+  profile,
+  todayIso,
+  onChange,
+}: {
+  profile: OnboardingProfile;
+  todayIso: string;
+  onChange: (patch: Partial<OnboardingProfile>) => void;
+}) {
+  // ⚠️ 선택 상태를 profile.birthDate에서 매번 다시 파싱하면, 연도만 고른 시점처럼 아직
+  // 완전한 날짜가 아닐 때 profile.birthDate가 계속 ""로 남아있어서 방금 고른 값이 화면에서
+  // 다시 "연도"(placeholder)로 되돌아가 버린다. 그래서 선택 상태는 로컬 state로 따로 들고,
+  // 세 칸이 다 채워졌을 때만 조합해서 부모에 올린다.
+  const initial = parseYearMonthDay(profile.birthDate);
+  const [year, setYear] = useState(initial.year);
+  const [month, setMonth] = useState(initial.month);
+  const [day, setDay] = useState(initial.day);
+
+  const currentYear = Number(todayIso.slice(0, 4));
+  // 자립준비청년 응답자 연령대를 넉넉히 포괄 (만 9세~45세)
+  const years = Array.from({ length: 37 }, (_, i) => String(currentYear - 9 - i));
+  const months = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+  const dayCount = daysInMonth(year, month);
+  const days = Array.from({ length: dayCount }, (_, i) => String(i + 1).padStart(2, "0"));
+
+  const setPart = (part: "year" | "month" | "day", value: string) => {
+    const next = { year, month, day, [part]: value };
+    // 일(day)이 새 월의 최대 일수를 넘으면 잘라준다 (예: 31일 선택 후 2월로 바꾸는 경우)
+    const maxDay = daysInMonth(next.year, next.month);
+    const safeDay = next.day && Number(next.day) > maxDay ? String(maxDay).padStart(2, "0") : next.day;
+    setYear(next.year);
+    setMonth(next.month);
+    setDay(safeDay);
+    onChange({ birthDate: toIsoFromYearMonthDay(next.year, next.month, safeDay) });
+  };
+
+  return (
+    <StepShell category={STEP_CATEGORY.birth} badge="violet" title="생년월일이 어떻게 되세요?" desc="나이·기산점 계산에 필요해요">
+      <div style={{ display: "flex", gap: "10px" }}>
+        <select value={year} onChange={(e) => setPart("year", e.target.value)} style={{ ...inputStyle, flex: 1.2 }}>
+          <option value="">연도</option>
+          {years.map((y) => (
+            <option key={y} value={y}>
+              {y}년
+            </option>
+          ))}
+        </select>
+        <select value={month} onChange={(e) => setPart("month", e.target.value)} style={{ ...inputStyle, flex: 1 }}>
+          <option value="">월</option>
+          {months.map((m) => (
+            <option key={m} value={m}>
+              {Number(m)}월
+            </option>
+          ))}
+        </select>
+        <select value={day} onChange={(e) => setPart("day", e.target.value)} style={{ ...inputStyle, flex: 1 }}>
+          <option value="">일</option>
+          {days.map((d) => (
+            <option key={d} value={d}>
+              {Number(d)}일
+            </option>
+          ))}
+        </select>
+      </div>
+    </StepShell>
+  );
+}
+
+function EndDateStep({
+  profile,
+  todayIso,
+  onChange,
+}: {
+  profile: OnboardingProfile;
+  todayIso: string;
+  onChange: (patch: Partial<OnboardingProfile>) => void;
+}) {
+  // BirthDateStep과 같은 이유로 로컬 state로 선택 상태를 따로 든다 (연도만 고른 시점에
+  // profile.protectionEndDate가 아직 ""라서 화면이 다시 placeholder로 되돌아가는 것 방지).
+  const initial = parseYearMonth(profile.protectionEndDate);
+  const [year, setYear] = useState(initial.year);
+  const [month, setMonth] = useState(initial.month);
+
+  const currentYear = Number(todayIso.slice(0, 4));
+  // 과거(이미 종료) ~ 미래(만 18세 도달 예정) 양쪽을 넉넉히 포괄
+  const years = Array.from({ length: 31 }, (_, i) => String(currentYear + 10 - i));
+  const months = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+
+  const setPart = (part: "year" | "month", value: string) => {
+    const next = { year, month, [part]: value };
+    setYear(next.year);
+    setMonth(next.month);
+    onChange({ protectionEndDate: toIsoFromYearMonth(next.year, next.month) });
+  };
+
+  const isFuture = !!profile.protectionEndDate && profile.protectionEndDate > todayIso;
+  const remainingToEnd = isFuture ? monthsBetween(todayIso, profile.protectionEndDate) : null;
+  const elapsed = !isFuture ? monthsBetween(profile.protectionEndDate, todayIso) : null;
+  const dday5y = profile.protectionEndDate ? addYearsIso(profile.protectionEndDate, 5) : null;
+  const remainingTo5y = !isFuture && profile.protectionEndDate ? monthsBetween(todayIso, dday5y) : null;
+
+  const title =
+    profile.protectionEndType === "CURRENTLY_PROTECTED"
+      ? "보호종료 예정일이 언제인가요?"
+      : "보호가 끝난 때가 언제인가요?";
+
+  return (
+    <>
+      <StepShell
+        category={STEP_CATEGORY.endDate}
+        badge="violet"
+        title={title}
+        desc="연도와 월만 고르면 돼요. 정확한 날짜는 몰라도 괜찮아요."
+      >
+        <div style={{ display: "flex", gap: "12px" }}>
+          <select value={year} onChange={(e) => setPart("year", e.target.value)} style={{ ...inputStyle, flex: 1 }}>
+            <option value="">연도</option>
+            {years.map((y) => (
+              <option key={y} value={y}>
+                {y}년
+              </option>
+            ))}
+          </select>
+          <select value={month} onChange={(e) => setPart("month", e.target.value)} style={{ ...inputStyle, flex: 1 }}>
+            <option value="">월</option>
+            {months.map((m) => (
+              <option key={m} value={m}>
+                {Number(m)}월
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {profile.protectionEndDate && isFuture && (
+          <div
+            style={{
+              marginTop: "6px",
+              border: `1px solid ${COLORS.cardBorder}`,
+              borderRadius: "16px",
+              padding: "16px",
+              background: "#fafafa",
+            }}
+          >
+            <p style={{ fontSize: "11px", fontWeight: 700, color: COLORS.inkMuted }}>
+              ● 자동 계산됨 — 직접 계산 안 하셔도 돼요
+            </p>
+            <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "10px" }}>보호종료 예정까지</p>
+            <p style={{ fontSize: "22px", fontWeight: 800, color: COLORS.ink, marginTop: "2px" }}>
+              {formatDuration(remainingToEnd)}
+            </p>
+            <p style={{ fontSize: "11px", color: COLORS.inkMuted, marginTop: "8px" }}>
+              5년 기한은 실제로 보호가 끝난 뒤부터 계산돼요.
+            </p>
+          </div>
+        )}
+
+        {profile.protectionEndDate && !isFuture && (
+          <div
+            style={{
+              marginTop: "6px",
+              border: `1px solid ${COLORS.cardBorder}`,
+              borderRadius: "16px",
+              padding: "16px",
+              background: "#fafafa",
+            }}
+          >
+            <p style={{ fontSize: "11px", fontWeight: 700, color: COLORS.inkMuted }}>
+              ● 자동 계산됨 — 직접 계산 안 하셔도 돼요
+            </p>
+            <div style={{ display: "flex", gap: "16px", marginTop: "10px" }}>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: "12px", color: COLORS.inkMuted }}>보호종료 후 경과</p>
+                <p style={{ fontSize: "22px", fontWeight: 800, color: COLORS.ink, marginTop: "2px" }}>
+                  {formatDuration(elapsed)}
+                </p>
+              </div>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: "12px", color: COLORS.inkMuted }}>5년 기한까지</p>
+                <p style={{ fontSize: "22px", fontWeight: 800, color: COLORS.ink, marginTop: "2px" }}>
+                  {formatDuration(remainingTo5y)}
+                </p>
+              </div>
+            </div>
+            <p style={{ fontSize: "11px", color: COLORS.inkMuted, marginTop: "8px" }}>
+              이 숫자가 여러 제도의 D-day 기한과 이어져요.
+            </p>
+          </div>
+        )}
+      </StepShell>
+      <p style={footerNoteStyle}>
+        많은 자립 지원 제도가 &quot;보호종료 후 5년 이내&quot;를 기준으로 삼아요. 정확한 날짜를
+        몰라도 연·월만 알면 충분히 계산할 수 있어요.
+      </p>
+    </>
+  );
+}
+
+function OutOfScopeScreen({ onBack }: { onBack: () => void }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "16px", animation: "fadeIn 0.25s" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "12px", color: COLORS.onDarkMuted, fontSize: "13px", fontWeight: 700 }}>
+        <button onClick={onBack} style={backArrowStyle} aria-label="이전으로">
+          ←
+        </button>
+        <span>안내</span>
+      </div>
+
+      <div style={CARD_STYLE}>
+        <span style={pillBadge("cyan")}>대상 안내</span>
+        <h2 style={{ fontSize: "19px", fontWeight: 800, color: COLORS.ink, marginTop: "14px", lineHeight: 1.4 }}>
+          이곳은 시설·위탁가정에서 지낸 분들을 위한 서비스예요
+        </h2>
+        <p style={{ fontSize: "13px", color: COLORS.inkMuted, marginTop: "10px", lineHeight: 1.6 }}>
+          여기서 다루는 제도는 대부분 보호종료를 조건으로 해서, 지금 도움이 되기 어려워요. 대신
+          아래 서비스를 확인해보세요.
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "16px" }}>
+          <a
+            href="https://www.youthcenter.go.kr"
+            target="_blank"
+            rel="noreferrer"
+            style={outOfScopeLinkStyle}
+          >
+            <span>온통청년<span style={{ color: COLORS.inkMuted, fontWeight: 500 }}> · 청년정책 통합</span></span>
+            <span>→</span>
+          </a>
+          <a
+            href="https://www.bokjiro.go.kr"
+            target="_blank"
+            rel="noreferrer"
+            style={outOfScopeLinkStyle}
+          >
+            <span>복지로<span style={{ color: COLORS.inkMuted, fontWeight: 500 }}> · 복지제도 모의계산</span></span>
+            <span>→</span>
+          </a>
+        </div>
+      </div>
+
+      <button onClick={onBack} style={PRIMARY_BUTTON}>
+        이전으로 돌아가기
+      </button>
+    </div>
+  );
+}
+
+function StepShell({
+  category,
+  badge,
+  title,
+  desc,
+  children,
+}: {
+  category: string;
+  badge: "violet" | "cyan" | "lime";
+  title: string;
+  desc?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={CARD_STYLE}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+        <div>
+          <span style={pillBadge(badge)}>{category}</span>
+          <h2 style={{ fontSize: "19px", fontWeight: 800, color: COLORS.ink, marginTop: "12px", lineHeight: 1.4 }}>
+            {title}
+          </h2>
+          {desc && <p style={{ fontSize: "13px", color: COLORS.inkMuted, marginTop: "6px" }}>{desc}</p>}
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function YesNoButtons({ value, onChange }: { value: boolean | null; onChange: (v: boolean) => void }) {
+  return (
+    <div style={{ display: "flex", gap: "12px" }}>
+      <button onClick={() => onChange(true)} style={choiceButtonStyle(value === true)}>
+        예
+      </button>
+      <button onClick={() => onChange(false)} style={choiceButtonStyle(value === false)}>
+        아니오
+      </button>
+    </div>
+  );
+}
+
+function YesNoUnknownButtons({
+  value,
+  onChange,
+  showUnknown = true,
+}: {
+  value: YesNoUnknown;
+  onChange: (v: YesNoUnknown) => void;
+  showUnknown?: boolean;
+}) {
+  return (
+    <div style={{ display: "flex", gap: "10px" }}>
+      <button onClick={() => onChange("Y")} style={choiceButtonStyle(value === "Y")}>
+        예
+      </button>
+      <button onClick={() => onChange("N")} style={choiceButtonStyle(value === "N")}>
+        아니오
+      </button>
+      {showUnknown && (
+        <button onClick={() => onChange("UNKNOWN")} style={choiceButtonStyle(value === "UNKNOWN")}>
+          잘 모르겠어요
+        </button>
+      )}
+    </div>
+  );
+}
+
+const backArrowStyle = {
+  background: "none",
+  border: "none",
+  fontSize: "16px",
+  color: COLORS.onDark,
+  padding: "4px",
+  lineHeight: 1,
+} as const;
+
+const subLabelStyle = {
+  display: "block",
+  fontSize: "11px",
+  fontWeight: 500,
+  marginTop: "4px",
+  opacity: 0.7,
+} as const;
+
+const footerNoteStyle = {
+  fontSize: "12px",
+  color: COLORS.onDarkMuted,
+  lineHeight: 1.6,
+  padding: "0 4px",
+} as const;
+
+const outOfScopeLinkStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  padding: "14px 16px",
+  borderRadius: "14px",
+  border: `1px solid ${COLORS.cardBorder}`,
+  fontSize: "14px",
+  fontWeight: 700,
+  color: COLORS.ink,
+  textDecoration: "none",
+} as const;
+
+// 이유 문구에 지역명 등 가변 정보가 섞여 있어서, 접두어로 같은 종류의 사유를 하나로 묶는다.
+function reasonGroupLabel(reason: string | undefined): string {
+  if (!reason) return "기타 사유";
+  if (reason.startsWith("거주 지역과 달라요")) return "거주 지역이 달라요";
+  if (reason.startsWith("보호종료 후 5년이 지났어요")) return "보호종료 후 5년이 지났어요";
+  if (reason.includes("재학 중이어야")) return "재학 중이어야 신청 가능해요";
+  if (reason.includes("무주택 조건이 있어요")) return "무주택 조건이 있어요 (주택 소유 중)";
+  return reason;
+}
+
+function groupIneligibleByReason(items: EvaluatedRealItem[]): { label: string; items: EvaluatedRealItem[] }[] {
+  const groups = new Map<string, EvaluatedRealItem[]>();
+  for (const item of items) {
+    const label = reasonGroupLabel(item.reasons[0]);
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label)!.push(item);
+  }
+  return [...groups.entries()]
+    .map(([label, groupItems]) => ({ label, items: groupItems }))
+    .sort((a, b) => b.items.length - a.items.length);
+}
+
+export function EligibilityResultScreen({
+  profile,
+  todayIso,
+  items,
+  loading,
+  error,
+  onEditProfile,
+  onBack,
+}: {
+  profile: OnboardingProfile;
+  todayIso: string;
+  items: WelfareItem[] | null;
+  loading: boolean;
+  error: string | null;
+  onEditProfile: () => void;
+  onBack: () => void;
+}) {
+  const summary = useMemo(
+    () => (items ? matchRealItems(items, profile, todayIso) : null),
+    [items, profile, todayIso]
+  );
+
+  if (loading || !summary) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "20px", animation: "fadeIn 0.3s" }}>
+        <section style={CARD_STYLE}>
+          <p style={{ fontSize: "14px", color: COLORS.inkMuted }}>
+            {error ? `불러오는 데 실패했어요. (${error})` : "공공데이터에서 매칭 중이에요..."}
+          </p>
+        </section>
+        <button onClick={onBack} style={GHOST_BUTTON_ON_DARK}>
+          ← 돌아가기
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "22px", animation: "fadeIn 0.3s" }}>
+      <section style={{ ...CARD_STYLE, textAlign: "center" }}>
+        <p style={{ fontSize: "13px", color: COLORS.inkMuted, fontWeight: 700 }}>
+          자격 매칭 결과 (공공데이터 기준 · 주기적으로 갱신)
+        </p>
+        <h2 style={{ fontSize: "26px", fontWeight: 800, color: COLORS.ink, marginTop: "8px" }}>
+          가능성 높은 지원 {summary.eligible.length}개
+        </h2>
+        <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>
+          공고 원문 텍스트에서 조건을 추정한 결과라 확정 판정이 아니에요. 최종 자격은 담당
+          자립지원전담기관에서 꼭 다시 확인해주세요.
+        </p>
+      </section>
+
+      <section>
+        <h3 style={{ fontSize: "14px", fontWeight: 800, color: COLORS.success, marginBottom: "12px" }}>
+          가능성 높은 지원 ({summary.eligible.length})
+        </h3>
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          {summary.eligible.length === 0 && (
+            <p style={{ fontSize: "13px", color: COLORS.onDarkMuted }}>조건에 맞는 지원을 찾지 못했어요.</p>
+          )}
+          {summary.eligible.map((item, i) => (
+            <RealItemCard key={`${item.source}-${item.servId}-${i}`} item={item} tone="eligible" />
+          ))}
+        </div>
+      </section>
+
+      {summary.uncertain.length > 0 && (
+        <section>
+          <h3 style={{ fontSize: "14px", fontWeight: 800, color: COLORS.warning, marginBottom: "12px" }}>
+            확인이 필요한 지원 ({summary.uncertain.length})
+          </h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            {summary.uncertain.map((item, i) => (
+              <RealItemCard key={`${item.source}-${item.servId}-${i}`} item={item} tone="uncertain" />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {summary.ineligible.length > 0 && (
+        <section>
+          <h3 style={{ fontSize: "14px", fontWeight: 800, color: COLORS.danger, marginBottom: "12px" }}>
+            지금은 해당하지 않아 보이는 지원 ({summary.ineligible.length})
+          </h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            {groupIneligibleByReason(summary.ineligible).map((group) => (
+              <details key={group.label} style={{ ...CARD_STYLE, padding: "16px" }}>
+                <summary
+                  style={{
+                    cursor: "pointer",
+                    fontSize: "14px",
+                    fontWeight: 700,
+                    color: COLORS.ink,
+                    listStyle: "none",
+                  }}
+                >
+                  {group.label}{" "}
+                  <span style={{ ...pillBadge("danger"), marginLeft: "6px" }}>{group.items.length}건</span>
+                </summary>
+                <div style={{ display: "flex", flexDirection: "column", marginTop: "10px" }}>
+                  {group.items.map((item, i) => (
+                    <IneligibleItemRow key={`${item.source}-${item.servId}-${i}`} item={item} />
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <button onClick={onEditProfile} style={GHOST_BUTTON_ON_DARK}>
+        조건 다시 입력하기
+      </button>
+      <button onClick={onBack} style={{ ...GHOST_BUTTON_ON_DARK, border: "none" }}>
+        처음으로
+      </button>
+    </div>
+  );
+}
+
+function IneligibleItemRow({ item }: { item: EvaluatedRealItem }) {
+  return (
+    <div style={{ padding: "10px 0", borderTop: `1px solid ${COLORS.cardBorder}` }}>
+      <p style={{ fontSize: "14px", fontWeight: 700, color: COLORS.ink }}>{item.servNm}</p>
+      <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "2px" }}>
+        {item.org}
+        {item.region && ` · ${item.region}`}
+      </p>
+      {item.reasons.map((reason, i) => (
+        <p key={i} style={{ ...pillBadge("danger"), marginTop: "6px", display: "block", width: "fit-content" }}>
+          {reason}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function RealItemCard({
+  item,
+  tone,
+}: {
+  item: EvaluatedRealItem;
+  tone: "eligible" | "uncertain";
+}) {
+  const toneStyle = {
+    eligible: { border: "#bbf7d0", badge: pillBadge("success" as const) },
+    uncertain: { border: "#fde68a", badge: pillBadge("warning" as const) },
+  }[tone];
+
+  return (
+    <section style={{ ...CARD_STYLE, padding: "22px", border: `1px solid ${toneStyle.border}` }}>
+      <span style={pillBadge("violet")}>{SOURCE_LABEL[item.source]}</span>
+
+      <div style={{ marginTop: "10px" }}>
+        <p style={{ fontSize: "16px", fontWeight: 800, color: COLORS.ink }}>{item.servNm}</p>
+        <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "2px" }}>
+          {item.org}
+          {item.region && ` · ${item.region}`}
+        </p>
+      </div>
+
+      <p style={{ fontSize: "13px", color: "#3f3f46", marginTop: "10px", lineHeight: 1.6 }}>{item.servDgst}</p>
+
+      {item.deadline && <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>⏰ {item.deadline}</p>}
+
+      {item.reasons.map((reason, i) => (
+        <p
+          key={i}
+          style={{
+            marginTop: "8px",
+            ...toneStyle.badge,
+            fontSize: "13px",
+            display: "block",
+            borderRadius: "10px",
+            padding: "8px 12px",
+          }}
+        >
+          {tone === "uncertain" ? "❓" : "→"} {reason}
+        </p>
+      ))}
+
+      <a
+        href={item.link}
+        target="_blank"
+        rel="noreferrer"
+        style={{
+          display: "inline-block",
+          marginTop: "12px",
+          fontSize: "13px",
+          fontWeight: 700,
+          color: COLORS.accentViolet,
+          textDecoration: "none",
+        }}
+      >
+        공식 안내 페이지 바로가기 →
+      </a>
+    </section>
+  );
+}
