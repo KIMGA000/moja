@@ -130,15 +130,68 @@ function toPolicyShape(item: AnnouncementItem): { policy: Policy; notReviewed: b
   };
 }
 
+/** 조건 노드가 참조하는 필드명을 전부 모은다 (anyOf/allOf 재귀). */
+function fieldsOf(node: PolicyCondition): string[] {
+  const n = node as unknown as {
+    anyOf?: PolicyCondition[]; allOf?: PolicyCondition[]; field?: string;
+  };
+  if (n.anyOf) return n.anyOf.flatMap(fieldsOf);
+  if (n.allOf) return n.allOf.flatMap(fieldsOf);
+  return n.field ? [n.field] : [];
+}
+
+/**
+ * 온보딩 문항 구조 때문에 "추정으로 채운" 필드를 참조하는 조건에 riskyField와 안내 문장을 붙인다.
+ *
+ * 왜 필요한가: currentStatus가 UNIV/GRAD/EMPLOYED/UNEMPLOYED 단일선택이라 "재학이면서 취업"인
+ * 사람을 표현할 수 없다. 어댑터는 EMPLOYED를 고른 사람의 isEnrolled를 false로 "추정"하는데,
+ * 그 상태로 재학 요건 공고에서 탈락하면 실제로는 받을 수 있는 사람이 아무 경고도 없이 잘린다.
+ * 놓치는 오류(false negative)가 헛걸음보다 나쁘다는 원칙에 따라, 추정으로 탈락할 수 있는
+ * 조건은 반드시 '확인 필요'를 남긴다.
+ *
+ * 검수된 공고(DB conditions)와 검수 전 공고(폴백 조건) 양쪽에 적용된다 — 이건 공고의 성질이
+ * 아니라 사용자 답변의 성질이기 때문이다.
+ */
+function markLossyConditions(
+  conditions: PolicyCondition[],
+  lossyFields: { field: string; reason: string }[]
+): PolicyCondition[] {
+  if (lossyFields.length === 0) return conditions;
+  const lossyByField = new Map(lossyFields.map((f) => [f.field, f.reason]));
+
+  return conditions.map((cond) => {
+    const hit = fieldsOf(cond).find((f) => lossyByField.has(f));
+    if (!hit) return cond;
+    return {
+      ...cond,
+      riskyField: true,
+      uncertaintyLabel:
+        cond.uncertaintyLabel ??
+        `${lossyByField.get(hit)} 이 답변에 따라 결과가 달라질 수 있어요 — 담당기관에 확인해보세요.`,
+    };
+  });
+}
+
 export function matchRealItems(
   items: AnnouncementItem[],
   profile: OnboardingProfile,
   todayIso: string
 ): RealMatchSummary {
-  const { profile: rawProfile } = toEngineProfile(profile);
+  const { profile: rawProfile, lossyFields } = toEngineProfile(profile);
   const engineProfile = computeProfile(rawProfile, new Date(todayIso));
 
-  const shapes = items.map((item) => ({ item, ...toPolicyShape(item) }));
+  const shapes = items.map((item) => {
+    const shaped = toPolicyShape(item);
+    return {
+      item,
+      ...shaped,
+      // 추정으로 채운 답변이 관여하는 조건에 '확인 필요'를 붙인다 (markLossyConditions 주석 참고)
+      policy: {
+        ...shaped.policy,
+        conditions: markLossyConditions(shaped.policy.conditions, lossyFields),
+      },
+    };
+  });
   const itemByPolicyId = new Map(shapes.map((s) => [s.policy.id, s]));
 
   // evaluateAll이 곧마감 > 신청가능 > 예정 > 이미놓침 순으로 이미 정렬해준다 — 그 순서를

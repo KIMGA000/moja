@@ -998,6 +998,12 @@ function IneligibleItemRow({ item }: { item: EvaluatedRealItem }) {
           {reason}
         </p>
       ))}
+      {/* 탈락한 항목에도 '확인 필요' 문장을 반드시 보여준다.
+          온보딩 문항 구조 때문에 추정으로 채운 값(예: currentStatus 단일선택이라
+          "재학이면서 취업"을 구분 못 함)으로 탈락하는 경우가 있는데, 그 사람이야말로
+          "이건 추정이니 직접 확인해보세요"를 봐야 하는 사람이다.
+          여기서 문장을 감추면 받을 수 있는 지원을 그대로 포기하게 된다. */}
+      <UncertaintyNotice flags={item.uncertaintyFlags} />
     </div>
   );
 }

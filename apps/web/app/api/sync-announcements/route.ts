@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { WelfareItem, WelfareSource } from "../../data/apiPreview";
 import { classifyItem } from "../../data/classify";
 import { TABLE_BY_SOURCE, createSupabaseAdminClient } from "../../../lib/supabase";
+import { assertOperatorRequest } from "../../../lib/apiAuth";
 import {
   CENTRAL_API_BASE,
   DUAL_TRAINING_API_BASE,
@@ -104,7 +105,10 @@ async function syncSource(
   return { fetched: rawFetchedCount, matched: candidateItems.length, skipped, upserted };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = assertOperatorRequest(req);
+  if (denied) return denied;
+
   const apiKey = process.env.WELFARE_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
@@ -243,3 +247,7 @@ export async function GET() {
 
   return NextResponse.json({ summary });
 }
+
+// Vercel Cron은 GET으로 호출하지만, 사람이 수동으로 돌릴 때는 (부수효과가 있는 요청이니)
+// POST가 안전하다 — 링크를 잘못 클릭하거나 프리페치되는 사고를 막는다. 로직은 동일하다.
+export const POST = GET;

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { SOURCE_LABEL, type WelfareItem, type WelfareSource } from "../../data/apiPreview";
+import { assertOperatorRequest } from "../../../lib/apiAuth";
 import {
   CENTRAL_API_BASE,
   DUAL_TRAINING_API_BASE,
@@ -26,7 +27,10 @@ function emptyBucket(): SourceBucket {
   return { totalCount: 0, fetchedCount: 0, filteredCount: 0, youthCount: 0 };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = assertOperatorRequest(req);
+  if (denied) return denied;
+
   const apiKey = process.env.WELFARE_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
