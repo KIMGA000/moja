@@ -91,6 +91,13 @@ function evalConditionNode(node: ConditionNode, profile: Profile): ConditionEval
   return { satisfied, usedRiskyField: !!node.riskyField };
 }
 
+/** 조건 노드가 참조하는 모든 필드명(anyOf/allOf는 재귀적으로 leaf까지 모은다). */
+function collectFields(node: ConditionNode): string[] {
+  if ('anyOf' in node) return node.anyOf.flatMap(collectFields);
+  if ('allOf' in node) return node.allOf.flatMap(collectFields);
+  return [node.field];
+}
+
 // ---------------------------------------------------------------------------
 // 3. 정책 하나 평가
 // ---------------------------------------------------------------------------
@@ -98,6 +105,7 @@ function evalConditionNode(node: ConditionNode, profile: Profile): ConditionEval
 export function evaluatePolicy(policy: Policy, profile: Profile): PolicyEvalResult {
   const reasons: string[] = [];
   const uncertaintyFlags: string[] = [];
+  const failedFieldsSet = new Set<string>();
   let eligible = true;
 
   for (const cond of policy.conditions) {
@@ -108,6 +116,7 @@ export function evaluatePolicy(policy: Policy, profile: Profile): PolicyEvalResu
     if (conditionFailed) {
       eligible = false;
       if (cond.rejectReason) reasons.push(cond.rejectReason);
+      collectFields(cond).forEach((field) => failedFieldsSet.add(field));
     }
 
     // uncertaintyLabel이 있는 조건은, 그 조건이 이번 판정에 "영향을 줬을 가능성이 있으면"
@@ -132,6 +141,7 @@ export function evaluatePolicy(policy: Policy, profile: Profile): PolicyEvalResu
     eligible,
     reasons,
     uncertaintyFlags,
+    failedFields: [...failedFieldsSet],
     hasDeadlineSignal: hasFiveYearDeadline,
     daysUntilDeadline: hasFiveYearDeadline ? profile.daysUntilFiveYearDeadline : null,
     citation: policy.citation,
@@ -204,12 +214,21 @@ export function applyRelationRules(
 }
 
 // ---------------------------------------------------------------------------
-// 5. 최종 3분류 상태 부여 — 신청가능 / 곧마감 / 이미놓침
-// ([4단계]에서 '예정' 상태가 추가되며 이 함수가 4분류로 확장된다)
+// 5. 최종 4분류 상태 부여 — 신청가능 / 곧마감 / 예정 / 이미놓침
+//
+// '예정': 탈락 사유가 daysUntilFiveYearDeadline 하나뿐이고, 그 값이 null이면(=아직 보호가
+// 끝나지 않아 5년 기산 자체가 시작되지 않은 사람) '이미놓침'이 아니라 '예정'이다. 아직
+// 시작 전인 것을 "놓쳤다"고 안내하면 받을 수 있는 지원을 포기하게 만든다(01_통합_프롬프트.md
+// [4단계] 정합성 이슈 ③).
 // ---------------------------------------------------------------------------
 
 export function classify(result: PolicyEvalResult): ClassifiedResult {
   if (!result.eligible) {
+    const onlyFiveYearFieldFailed =
+      result.failedFields.length === 1 && result.failedFields[0] === 'daysUntilFiveYearDeadline';
+    if (onlyFiveYearFieldFailed && result.hasDeadlineSignal && result.daysUntilDeadline === null) {
+      return { ...result, status: '예정', dDay: null };
+    }
     return { ...result, status: '이미놓침', dDay: result.hasDeadlineSignal ? result.daysUntilDeadline : null };
   }
   if (
@@ -239,8 +258,8 @@ export function evaluateAll(
   results = applyRelationRules(results, rules, profile);
   const classified = results.map(classify);
 
-  // 정렬: 곧마감(D-day 임박) > 신청가능 > 이미놓침, 같은 상태 내에서는 D-day 오름차순
-  const order: Record<string, number> = { 곧마감: 0, 신청가능: 1, 이미놓침: 2 };
+  // 정렬: 곧마감(D-day 임박) > 신청가능 > 예정 > 이미놓침, 같은 상태 내에서는 D-day 오름차순
+  const order: Record<string, number> = { 곧마감: 0, 신청가능: 1, 예정: 2, 이미놓침: 3 };
   classified.sort((a, b) => {
     if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
     const ad = a.dDay == null ? Infinity : a.dDay;

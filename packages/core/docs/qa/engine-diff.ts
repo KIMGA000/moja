@@ -36,6 +36,9 @@ const EXPECTED_DIFFS: { id: string; why: string }[] = [
   { id: 'dday:timezone',
     why: 'YYYY-MM-DD를 UTC 자정으로 파싱해 KST 사용자에게 하루 안에서도 D-day가 ' +
          '1일씩 흔들리던 것을 로컬 자정 정규화로 고정' },
+  { id: 'status:planned',
+    why: "보호가 아직 끝나지 않은 사용자(daysUntilFiveYearDeadline=null)를 '이미놓침'이 " +
+         "아니라 '예정'으로 분류. 아직 시작 전인 것을 놓쳤다고 안내하면 안 된다." },
 ];
 
 type Raw = Record<string, unknown>;
@@ -100,8 +103,13 @@ for (const [name, over] of CASES) {
     const now = `${x.status}/${x.dDay}`;
     const was = mapO.get(x.policyId);
     if (was !== now) {
-      // D-day만 다르면 타임존 정규화(의도한 차이)
-      const tag = was?.split('/')[0] === now.split('/')[0] ? 'dday:timezone' : `status:${x.policyId}`;
+      const wasStatus = was?.split('/')[0];
+      const nowStatus = now.split('/')[0];
+      // D-day만 다르면 타임존 정규화, 이미놓침→예정 전환이면 [4단계]에서 의도한 4분류 확장
+      const tag =
+        wasStatus === nowStatus ? 'dday:timezone'
+        : wasStatus === '이미놓침' && nowStatus === '예정' ? 'status:planned'
+        : `status:${x.policyId}`;
       if (!EXPECTED_DIFFS.some((d) => d.id === tag)) unexpected.push(`${name} / ${x.policyId}: ${was} → ${now}`);
     }
     const fO = (rO.find((y: never) => (y as never as { policyId: string }).policyId === x.policyId) as never as { uncertaintyFlags: string[] } | undefined)?.uncertaintyFlags ?? [];

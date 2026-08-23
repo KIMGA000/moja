@@ -118,6 +118,9 @@ export type PolicyEvalResult = {
   eligible: boolean;
   reasons: string[];
   uncertaintyFlags: string[];
+  /** 탈락(exclude 위반 포함)에 실제로 관여한 조건들이 참조한 필드명(중복 제거).
+   *  classify()가 "daysUntilFiveYearDeadline이 null이라 떨어진 것뿐인지"를 판단하는 데 쓴다. */
+  failedFields: string[];
   hasDeadlineSignal: boolean;
   daysUntilDeadline: number | null;
   citation?: string;
@@ -127,8 +130,9 @@ export type PolicyEvalResult = {
   downgradedBy?: string;
 };
 
-/** [1단계]에서는 아직 3분류만 이식한다 — '예정' 상태는 [4단계]에서 추가한다. */
-export type ClassificationStatus = '신청가능' | '곧마감' | '이미놓침';
+/** [4단계]에서 '예정'을 추가해 4분류가 됐다: 보호가 아직 끝나지 않아 5년 기산이 시작되지
+ *  않은 사람은 '이미놓침'(놓친 것)이 아니라 '예정'(아직 시작 전)으로 안내해야 한다. */
+export type ClassificationStatus = '신청가능' | '곧마감' | '예정' | '이미놓침';
 
 export type ClassifiedResult = PolicyEvalResult & {
   status: ClassificationStatus;

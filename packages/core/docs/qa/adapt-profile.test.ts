@@ -13,6 +13,8 @@ import {
 } from '../../src/types/onboarding';
 import { toEngineProfile } from '../../src/criteria/adaptProfile';
 import { computeProfile } from '../../src/engine/profile';
+import { evaluateAll } from '../../src/engine/evaluate';
+import policiesFile from '../../src/data/seed/policies.json';
 
 let fail = 0;
 let checks = 0;
@@ -111,17 +113,23 @@ for (const pet of PROTECTION_END_TYPES) {
 
 console.log(`  ${fail === 0 ? '✅' : '❌'} ${checks}건 확인`);
 
-console.log('\n══ 2) CURRENTLY_PROTECTED — daysUntilFiveYearDeadline null 확인 ══');
+console.log('\n══ 2) CURRENTLY_PROTECTED — daysUntilFiveYearDeadline null 확인 + \'예정\' 분류 ══');
 {
   const before = checks;
   const { profile } = toEngineProfile(base({ protectionEndType: 'CURRENTLY_PROTECTED', currentStatus: 'UNIV' }));
   const computed = computeProfile(profile, new Date('2026-08-21'));
   check('daysUntilFiveYearDeadline === null', computed.daysUntilFiveYearDeadline === null);
-  // 주의: classify()가 이걸 '예정'으로 분류하는 건 01_통합_프롬프트.md [4단계] 작업이다.
-  // 이 저장소의 lib/engine/types.ts ClassificationStatus는 현재 '신청가능'|'곧마감'|'이미놓침'
-  // 3분류뿐이라, daysUntilFiveYearDeadline===null인 조건은 지금은 여전히 '이미놓침'으로 나온다.
-  // 어댑터가 null을 정확히 만들어내는지만 여기서 확인하고, 4분류 확장은 다음 단계로 미룬다.
-  console.log(`  ${checks - before}건 확인 (classify()의 '예정' 4분류 확장은 [4단계]에서 — 여기서는 검증하지 않음)`);
+
+  // [4단계]: 아직 보호가 끝나지 않은 사람에게 5년 이내 제도는 '이미놓침'(놓친 것)이 아니라
+  // '예정'(아직 시작 전)이어야 한다. self-reliance-allowance(자립수당)는 daysUntilFiveYearDeadline
+  // 조건 하나 때문에만 떨어지는 대표 사례라 여기서 회귀를 감시한다.
+  const results = evaluateAll(computed, policiesFile as never, []);
+  const allowance = results.find((r) => r.policyId === 'self-reliance-allowance');
+  check('self-reliance-allowance가 결과에 존재함', allowance != null);
+  check(`self-reliance-allowance status === '예정'`, allowance?.status === '예정', `실제: ${allowance?.status}`);
+  check('self-reliance-allowance dDay === null', allowance?.dDay === null);
+
+  console.log(`  ${checks - before}건 확인`);
 }
 
 console.log('\n══ 3) REPROTECTED_END → isCurrentlyReprotected ══');
