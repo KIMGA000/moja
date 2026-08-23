@@ -10,9 +10,9 @@ import {
   type CurrentStatus,
   type OnboardingProfile,
   type ProtectionEndType,
-} from '../../app/data/eligibility';
-import { toEngineProfile } from '../../lib/criteria/adaptProfile';
-import { computeProfile } from '../../lib/engine/profile';
+} from '../../src/types/onboarding';
+import { toEngineProfile } from '../../src/criteria/adaptProfile';
+import { computeProfile } from '../../src/engine/profile';
 
 let fail = 0;
 let checks = 0;

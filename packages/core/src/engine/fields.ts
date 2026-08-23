@@ -112,11 +112,17 @@ export function validateFields(
 /**
  * 앱 시작 시 호출. 문제가 있으면 개발 중에는 즉시 던지고,
  * 운영 중에는 로그만 남기고 계속 돌린다(전체 화면이 죽는 것보다 낫다).
+ *
+ * mode는 호출부가 명시적으로 정한다 — 이 함수는 실행 환경 변수를 직접 읽지 않는다.
+ * core는 플랫폼 독립적이어야 하는데(RN에는 Node식 환경변수 전역객체가 없다), 환경에
+ * 따라 mode를 정하고 싶은 호출부(예: 웹의 프로덕션 여부 판단)는 그 판단을 자기 쪽에서
+ * 하고 결과값만 인자로 넘겨야 한다 — computeProfile(raw, today)가 new Date()를 안에서
+ * 부르지 않고 today를 인자로 받는 것과 같은 이유다.
  */
 export function assertFieldsValid(
   policies: Policy[] | { policies: Policy[] },
   rules: RelationRule[] | { rules: RelationRule[] } = [],
-  mode: 'throw' | 'warn' = process.env.NODE_ENV === 'production' ? 'warn' : 'throw'
+  mode: 'throw' | 'warn' = 'throw'
 ): FieldIssue[] {
   const issues = validateFields(policies, rules);
   if (issues.length === 0) return issues;

@@ -5,7 +5,7 @@
 
 import type { WelfareItem } from "./apiPreview";
 import { isAboutCareLeavers, isAboutYouth } from "../../lib/govApis";
-import { resolveRegionScope } from "../../lib/regions";
+import { resolveRegionScope } from "@moja/core";
 import type { InterestCategory, ProtectionEndType } from "./eligibility";
 
 export type AnnouncementClassification = {

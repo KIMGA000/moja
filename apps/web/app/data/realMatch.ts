@@ -5,7 +5,7 @@
 
 import { buildAgeInfo, type AgeInfo, type OnboardingProfile } from "./eligibility";
 import type { WelfareItem } from "./apiPreview";
-import { matchesUserRegion } from "../../lib/regions";
+import { matchesUserRegion } from "@moja/core";
 
 export type RealVerdict = "ELIGIBLE" | "INELIGIBLE" | "UNCERTAIN";
 

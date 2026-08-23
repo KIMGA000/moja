@@ -11,14 +11,19 @@
  * 아무도 모르는 변경"이 조용히 섞여 들어가지 않는다.
  * =========================================================================== */
 
+// 이 서비스의 사용자는 전부 한국에 있고, D-day 판정은 KST 기준이어야 한다.
+// 테스트가 실행 머신의 타임존(개발자 PC, CI 컨테이너)에 따라 결과가 달라지면
+// 신뢰할 수 없으므로 여기서 고정한다. Date 를 처음 쓰기 전에 설정해야 적용된다.
+process.env.TZ = 'Asia/Seoul';
+
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { computeProfile } from '../../lib/engine/profile';
-import { evaluateAll, filterNotices } from '../../lib/engine/evaluate';
-import { validateFields } from '../../lib/engine/fields';
-import policiesFile from '../../data/seed/policies.json';
-import rulesFile from '../../data/seed/rules.json';
-import noticesFile from '../../data/seed/notices.json';
+import { computeProfile } from '../../src/engine/profile';
+import { evaluateAll, filterNotices } from '../../src/engine/evaluate';
+import { validateFields } from '../../src/engine/fields';
+import policiesFile from '../../src/data/seed/policies.json';
+import rulesFile from '../../src/data/seed/rules.json';
+import noticesFile from '../../src/data/seed/notices.json';
 
 const require_ = createRequire(import.meta.url);
 const orig = require_(path.join(process.cwd(), 'docs/qa/_original-engine.cjs'));

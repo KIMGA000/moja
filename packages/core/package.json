@@ -1,0 +1,25 @@
+{
+  "name": "@moja/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "모자(MOJA) 판정 로직 — 웹·앱 공용. Next/React/DOM/Node 전용 API에 의존하지 않는다.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "qa:engine": "tsx docs/qa/engine-diff.ts",
+    "qa:adapter": "tsx docs/qa/adapt-profile.test.ts",
+    "qa:catalog": "tsx docs/qa/catalog-safety.test.ts",
+    "qa:boundary": "tsx src/__tests__/boundary.test.ts",
+    "qa": "npm run qa:engine && npm run qa:adapter && npm run qa:catalog && npm run qa:boundary"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "tsx": "^4"
+  }
+}

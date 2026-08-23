@@ -1,88 +1,29 @@
 // MOJA 자격 판별 엔진 — PLANNING_v3_모자.md F1/F2, MOJA_온보딩_질문설계_최종수정.md 기준
 // ⚠️ 여기 담긴 21개 제도의 자격 조건은 MVP 근사치다. 법령·공고문이 자주 바뀌는 항목은
 //    확정 판정 대신 uncertain 처리해서 "담당기관 확인 필요"로 안내한다 (기획서 6장 원칙).
+//
+// OnboardingProfile과 그 부속 타입·상수는 @moja/core로 옮겼다(04_next-step-core-package.md
+// [작업 2]) — core가 웹 전용 코드를 참조하면 앱(React Native)에서 core를 쓸 수 없기
+// 때문이다. 여기서는 재수출만 하므로 EligibilityFlow.tsx 등 기존 import는 그대로 쓴다.
+// 21개 제도 판정 함수(Program.evaluate)는 나중에 data/seed/policies.json + 카탈로그
+// 체계로 통합할 대상이라 지금은 그대로 web에 남겨둔다.
 
-export type ProtectionEndType =
-  | "AGE18_END" // 만 18세에 종료
-  | "EXTENDED_END" // 만 18세 이후 연장했다가 종료
-  | "EARLY_END" // 만 15~17세 조기 보호종료
-  | "REPROTECTED_END" // 재보호 후 다시 종료
-  | "CURRENTLY_PROTECTED"; // 현재 보호 중 (퇴소 예정)
+export type {
+  ProtectionEndType,
+  CurrentStatus,
+  YesNoUnknown,
+  InterestCategory,
+  OnboardingProfile,
+  AgeInfo,
+} from "@moja/core";
+export {
+  PROTECTION_END_TYPE_LABEL,
+  CURRENT_STATUS_LABEL,
+  INTEREST_CATEGORY_LABEL,
+  EMPTY_PROFILE,
+} from "@moja/core";
 
-export const PROTECTION_END_TYPE_LABEL: Record<ProtectionEndType, string> = {
-  AGE18_END: "만 18세에 종료",
-  EXTENDED_END: "연장 보호종료",
-  EARLY_END: "조기 보호종료",
-  REPROTECTED_END: "재보호 후 다시 종료",
-  CURRENTLY_PROTECTED: "현재 보호 중 (퇴소 예정)",
-};
-
-export type CurrentStatus = "UNIV" | "GRAD" | "EMPLOYED" | "UNEMPLOYED" | "OTHER";
-
-export const CURRENT_STATUS_LABEL: Record<CurrentStatus, string> = {
-  UNIV: "대학 재학",
-  GRAD: "대학원 재학",
-  EMPLOYED: "취업",
-  UNEMPLOYED: "미취업",
-  OTHER: "기타",
-};
-
-export type YesNoUnknown = "Y" | "N" | "UNKNOWN";
-
-export type InterestCategory =
-  | "INCOME"
-  | "HOUSING"
-  | "MEDICAL"
-  | "EDUCATION"
-  | "JOB"
-  | "ASSET"
-  | "MENTAL"
-  | "MENTORING"
-  | "ETC";
-
-export const INTEREST_CATEGORY_LABEL: Record<InterestCategory, string> = {
-  INCOME: "생활비·소득",
-  HOUSING: "주거",
-  MEDICAL: "의료",
-  EDUCATION: "교육·학비",
-  JOB: "취업·진로",
-  ASSET: "자산형성",
-  MENTAL: "심리·정서",
-  MENTORING: "멘토링·커뮤니티",
-  ETC: "기타",
-};
-
-export type OnboardingProfile = {
-  hasInstitutionalExperience: boolean | null; // Q1 대상 확인 게이트 (시설·위탁가정 경험 여부)
-  birthDate: string; // YYYY-MM-DD
-  protectionEndType: ProtectionEndType | null;
-  returnedToBirthFamily: boolean | null; // EARLY_END일 때만 의미 있음
-  protectionEndDate: string; // YYYY-MM-DD (실제 또는 예정)
-  currentStatus: CurrentStatus | null;
-  region: string; // 시·도
-  ownsHome: boolean | null;
-  maritalStatus: boolean | null;
-  basicLivelihoodRecipient: YesNoUnknown;
-  nearPoorMedicalReduction: YesNoUnknown;
-  currentBenefits: string[]; // 제도 id 또는 "NONE" / "UNKNOWN"
-  interestCategories: InterestCategory[];
-};
-
-export const EMPTY_PROFILE: OnboardingProfile = {
-  hasInstitutionalExperience: null,
-  birthDate: "",
-  protectionEndType: null,
-  returnedToBirthFamily: null,
-  protectionEndDate: "",
-  currentStatus: null,
-  region: "",
-  ownsHome: null,
-  maritalStatus: null,
-  basicLivelihoodRecipient: "UNKNOWN",
-  nearPoorMedicalReduction: "UNKNOWN",
-  currentBenefits: [],
-  interestCategories: [],
-};
+import type { AgeInfo, InterestCategory, OnboardingProfile } from "@moja/core";
 
 export type Verdict = "ELIGIBLE" | "INELIGIBLE" | "UNCERTAIN";
 
@@ -103,13 +44,6 @@ export type Program = {
   link: string;
   conflictsWith?: string[]; // 동시수급 불가 제도 id
   evaluate: (profile: OnboardingProfile, ageInfo: AgeInfo) => EligibilityResult;
-};
-
-export type AgeInfo = {
-  todayIso: string;
-  age18Date: string | null; // 생년월일 + 18년
-  anchorDate: string | null; // 제도별 기산점(대부분 보호종료일, 조기종료 일부는 만18세 도달일)
-  yearsSinceAnchor: number | null;
 };
 
 function addYears(iso: string, years: number): string | null {

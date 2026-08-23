@@ -21,10 +21,10 @@
  *       이건 온보딩 문항 구조 자체의 한계라 한 번에 못 고친다. 다만 나빠지는 건 막는다.
  * =========================================================================== */
 
-import { CATALOG, type CriterionParams } from '../../lib/criteria/catalog';
-import { criteriaToConditions, needsHumanCheck } from '../../lib/criteria/toCondition';
-import { computeProfile } from '../../lib/engine/profile';
-import { evaluateAll } from '../../lib/engine/evaluate';
+import { CATALOG, type CriterionParams } from '../../src/criteria/catalog';
+import { criteriaToConditions, needsHumanCheck } from '../../src/criteria/toCondition';
+import { computeProfile } from '../../src/engine/profile';
+import { evaluateAll } from '../../src/engine/evaluate';
 
 const TODAY = new Date('2026-08-21T12:00:00+09:00');
 

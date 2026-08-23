@@ -10,7 +10,7 @@
 // 호출부가 '확인 필요' 배지(엔진의 riskyField/uncertaintyFlags 경로)로 이어붙이게 한다.
 // ---------------------------------------------------------------------------
 
-import type { OnboardingProfile } from '../../app/data/eligibility';
+import type { OnboardingProfile } from '../types/onboarding';
 import type { RawProfileInput } from '../engine/types';
 
 export type LossyField = {
