@@ -15,8 +15,10 @@ import {
   type Region,
 } from "./data/jaripMatch";
 import {
+  API_SAMPLE_ANNOUNCEMENT_ITEMS,
   API_SAMPLE_ITEMS,
   SOURCE_LABEL,
+  type AnnouncementItem,
   type WelfareItem,
   type WelfareSource,
 } from "./data/apiPreview";
@@ -64,7 +66,7 @@ export default function Home() {
   const [apiSelectedSource, setApiSelectedSource] = useState<WelfareSource | null>(null);
 
   const [eligProfile, setEligProfile] = useState<OnboardingProfile>(EMPTY_PROFILE);
-  const [eligItems, setEligItems] = useState<WelfareItem[] | null>(null);
+  const [eligItems, setEligItems] = useState<AnnouncementItem[] | null>(null);
   const [eligLoading, setEligLoading] = useState(false);
   const [eligError, setEligError] = useState<string | null>(null);
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -156,11 +158,11 @@ export default function Home() {
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "공고 데이터를 불러오지 못했어요.");
-        setEligItems(data.items as WelfareItem[]);
+        setEligItems(data.items as AnnouncementItem[]);
       })
       .catch((err: Error) => {
         setEligError(err.message);
-        setEligItems(API_SAMPLE_ITEMS);
+        setEligItems(API_SAMPLE_ANNOUNCEMENT_ITEMS);
       })
       .finally(() => setEligLoading(false));
   };

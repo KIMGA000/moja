@@ -28,6 +28,9 @@ export const COLORS = {
   neutralBg: "#f4f4f5",
   danger: "#dc2626",
   dangerBg: "#fee2e2",
+  /** '예정' 배지 — 아직 신청 시기가 안 된 상태. 탈락(danger)도 성공(success)도 아니다. */
+  plan: "#2563eb",
+  planBg: "#dbeafe",
 } as const;
 
 export const CARD_STYLE = {
@@ -38,7 +41,9 @@ export const CARD_STYLE = {
   boxShadow: "0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 24px rgba(0, 0, 0, 0.05)",
 } as const;
 
-export function pillBadge(color: "violet" | "cyan" | "lime" | "success" | "warning" | "neutral" | "danger") {
+export function pillBadge(
+  color: "violet" | "cyan" | "lime" | "success" | "warning" | "neutral" | "danger" | "plan"
+) {
   const map = {
     violet: { background: COLORS.accentVioletBg, color: COLORS.accentViolet },
     cyan: { background: COLORS.accentCyanBg, color: "#0369a1" },
@@ -47,6 +52,7 @@ export function pillBadge(color: "violet" | "cyan" | "lime" | "success" | "warni
     warning: { background: COLORS.warningBg, color: COLORS.warning },
     neutral: { background: COLORS.neutralBg, color: COLORS.neutral },
     danger: { background: COLORS.dangerBg, color: COLORS.danger },
+    plan: { background: COLORS.planBg, color: COLORS.plan },
   }[color];
   return {
     display: "inline-block",

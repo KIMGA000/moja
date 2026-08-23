@@ -13,7 +13,7 @@ import {
   type YesNoUnknown,
 } from "../data/eligibility";
 import { matchRealItems, type EvaluatedRealItem } from "../data/realMatch";
-import { SOURCE_LABEL, type WelfareItem } from "../data/apiPreview";
+import { SOURCE_LABEL, type AnnouncementItem } from "../data/apiPreview";
 import {
   CARD_STYLE,
   COLORS,
@@ -842,7 +842,7 @@ export function EligibilityResultScreen({
 }: {
   profile: OnboardingProfile;
   todayIso: string;
-  items: WelfareItem[] | null;
+  items: AnnouncementItem[] | null;
   loading: boolean;
   error: string | null;
   onEditProfile: () => void;
@@ -899,12 +899,12 @@ export function EligibilityResultScreen({
 
       {summary.uncertain.length > 0 && (
         <section>
-          <h3 style={{ fontSize: "14px", fontWeight: 800, color: COLORS.warning, marginBottom: "12px" }}>
-            확인이 필요한 지원 ({summary.uncertain.length})
+          <h3 style={{ fontSize: "14px", fontWeight: 800, color: COLORS.plan, marginBottom: "12px" }}>
+            아직 신청 시기가 아닌 지원 ({summary.uncertain.length})
           </h3>
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             {summary.uncertain.map((item, i) => (
-              <RealItemCard key={`${item.source}-${item.servId}-${i}`} item={item} tone="uncertain" />
+              <RealItemCard key={`${item.source}-${item.servId}-${i}`} item={item} tone="plan" />
             ))}
           </div>
         </section>
@@ -951,10 +951,44 @@ export function EligibilityResultScreen({
   );
 }
 
+// '검수 전' 배지 — 아직 사람이 확인하지 않은 공고라는 뜻. 판정에는 mentions_*/requires_*
+// 컬럼만 썼다는 걸 알려준다.
+function NotReviewedBadge() {
+  return <span style={pillBadge("neutral")}>검수 전</span>;
+}
+
+// '확인 필요' 문장은 반드시 화면에 보여준다 — 배지만 있고 문장이 없으면 사용자는 뭘
+// 확인해야 할지 알 수 없다. eligible이어도(탈락이 아니어도) 붙을 수 있다.
+function UncertaintyNotice({ flags }: { flags: string[] }) {
+  if (flags.length === 0) return null;
+  return (
+    <>
+      {flags.map((flag, i) => (
+        <p
+          key={i}
+          style={{
+            marginTop: "8px",
+            ...pillBadge("danger"),
+            fontSize: "13px",
+            display: "block",
+            borderRadius: "10px",
+            padding: "8px 12px",
+          }}
+        >
+          🔎 확인 필요 — {flag}
+        </p>
+      ))}
+    </>
+  );
+}
+
 function IneligibleItemRow({ item }: { item: EvaluatedRealItem }) {
   return (
     <div style={{ padding: "10px 0", borderTop: `1px solid ${COLORS.cardBorder}` }}>
-      <p style={{ fontSize: "14px", fontWeight: 700, color: COLORS.ink }}>{item.servNm}</p>
+      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+        <p style={{ fontSize: "14px", fontWeight: 700, color: COLORS.ink }}>{item.servNm}</p>
+        {item.notReviewed && <NotReviewedBadge />}
+      </div>
       <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "2px" }}>
         {item.org}
         {item.region && ` · ${item.region}`}
@@ -973,16 +1007,23 @@ function RealItemCard({
   tone,
 }: {
   item: EvaluatedRealItem;
-  tone: "eligible" | "uncertain";
+  tone: "eligible" | "plan";
 }) {
   const toneStyle = {
     eligible: { border: "#bbf7d0", badge: pillBadge("success" as const) },
-    uncertain: { border: "#fde68a", badge: pillBadge("warning" as const) },
+    plan: { border: "#bfdbfe", badge: pillBadge("plan" as const) },
   }[tone];
 
   return (
     <section style={{ ...CARD_STYLE, padding: "22px", border: `1px solid ${toneStyle.border}` }}>
-      <span style={pillBadge("violet")}>{SOURCE_LABEL[item.source]}</span>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
+        <span style={pillBadge("violet")}>{SOURCE_LABEL[item.source]}</span>
+        {item.notReviewed && <NotReviewedBadge />}
+        {item.status === "곧마감" && item.dDay != null && (
+          <span style={pillBadge("warning")}>곧마감 · D-{item.dDay}</span>
+        )}
+        {item.status === "예정" && <span style={pillBadge("plan")}>예정</span>}
+      </div>
 
       <div style={{ marginTop: "10px" }}>
         <p style={{ fontSize: "16px", fontWeight: 800, color: COLORS.ink }}>{item.servNm}</p>
@@ -1008,9 +1049,11 @@ function RealItemCard({
             padding: "8px 12px",
           }}
         >
-          {tone === "uncertain" ? "❓" : "→"} {reason}
+          {tone === "plan" ? "❓" : "→"} {reason}
         </p>
       ))}
+
+      <UncertaintyNotice flags={item.uncertaintyFlags} />
 
       <a
         href={item.link}

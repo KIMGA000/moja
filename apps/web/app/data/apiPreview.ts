@@ -31,6 +31,9 @@ export const SOURCE_LABEL: Record<WelfareSource, string> = {
   youthCenter: "온통청년_청년정책",
 };
 
+import type { PolicyCondition } from "@moja/core";
+import type { ReviewStatus, StoredCriterion } from "../../lib/supabase";
+
 export type WelfareItem = {
   source: WelfareSource;
   servId: string;
@@ -48,6 +51,30 @@ export type WelfareItem = {
   applyMethod?: string; // 신청 방법 (지자체·정부24 제공, 예: 방문)
   contact?: string; // 대표 문의처
   link: string;
+};
+
+/**
+ * /api/announcements 가 내려주는 공고 하나. WelfareItem(raw_data)에 DB의 검수·분류
+ * 컬럼을 더한 모양이다 — 05_next-step-wire-review.md [작업 2]. 판정엔진(@moja/core)의
+ * Policy로 변환하는 건 app/data/realMatch.ts의 toPolicyShape()가 한다.
+ */
+export type AnnouncementItem = WelfareItem & {
+  id: number;
+  sourceId: string;
+  /** 검수자가 확정한 자연어 기준. 비어 있으면 아직 사람이 검수하지 않은 공고다. */
+  criteria: StoredCriterion[];
+  /** criteria를 판정엔진 조건으로 변환해둔 캐시. 비어 있으면 폴백 경로를 쓴다. */
+  conditions: PolicyCondition[];
+  regionScope: string | null;
+  mentionsCareLeaver: boolean;
+  mentionsYouth: boolean;
+  requiresEnrolled: boolean;
+  requiresNoHome: boolean;
+  requiresBasicLivelihood: boolean;
+  requiresAlreadyEnded: boolean;
+  protectionYearsLimit: number | null;
+  reviewStatus: ReviewStatus;
+  reviewedAt: string | null;
 };
 
 export const API_SAMPLE_ITEMS: WelfareItem[] = [
@@ -113,3 +140,25 @@ export const API_SAMPLE_ITEMS: WelfareItem[] = [
     link: "https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52011M.do?wlfareInfoId=WLF00001726&wlfareInfoReldBztpCd=02",
   },
 ];
+
+/**
+ * /api/announcements 호출이 실패했을 때(또는 Supabase 환경변수 미설정) 보여줄 예시 데이터.
+ * 전부 검수 전 취급(criteria/conditions 비움)이라 화면에 '검수 전' 배지가 붙는다.
+ */
+export const API_SAMPLE_ANNOUNCEMENT_ITEMS: AnnouncementItem[] = API_SAMPLE_ITEMS.map((item, i) => ({
+  ...item,
+  id: i,
+  sourceId: item.servId,
+  criteria: [],
+  conditions: [],
+  regionScope: null,
+  mentionsCareLeaver: true,
+  mentionsYouth: true,
+  requiresEnrolled: false,
+  requiresNoHome: false,
+  requiresBasicLivelihood: false,
+  requiresAlreadyEnded: false,
+  protectionYearsLimit: null,
+  reviewStatus: "approved",
+  reviewedAt: null,
+}));
