@@ -87,21 +87,10 @@ function buildStepIds(profile: OnboardingProfile): StepId[] {
 }
 
 // ── 날짜 계산 유틸 (Q2 자동 계산 패널용) ─────────────────────────────
-function parseYearMonth(iso: string): { year: string; month: string } {
-  if (!iso) return { year: "", month: "" };
-  const [y, m] = iso.split("-");
-  return { year: y ?? "", month: m ?? "" };
-}
-
 function parseYearMonthDay(iso: string): { year: string; month: string; day: string } {
   if (!iso) return { year: "", month: "", day: "" };
   const [y, m, d] = iso.split("-");
   return { year: y ?? "", month: m ?? "", day: d ?? "" };
-}
-
-function toIsoFromYearMonth(year: string, month: string): string {
-  if (!year || !month) return "";
-  return `${year}-${month.padStart(2, "0")}-01`;
 }
 
 function toIsoFromYearMonthDay(year: string, month: string, day: string): string {
@@ -288,7 +277,15 @@ export function EligibilityOnboarding({
             {(Object.keys(PROTECTION_END_TYPE_LABEL) as ProtectionEndType[]).map((t) => (
               <button
                 key={t}
-                onClick={() => update({ protectionEndType: t })}
+                onClick={() =>
+                  update({
+                    protectionEndType: t,
+                    // 유형이 바뀌면 이전 유형 기준으로 골랐던 종료일(나이)은 더 이상 맞지
+                    // 않으니 같이 지운다 — 안 지우면 다음 단계에서 이전 값이 그대로 남아있는
+                    // 것처럼 보이거나, 새 유형의 나이 선택지에 없는 값이 남을 수 있다.
+                    protectionEndDate: t === profile.protectionEndType ? profile.protectionEndDate : "",
+                  })
+                }
                 style={choiceButtonStyle(profile.protectionEndType === t)}
               >
                 {PROTECTION_END_TYPE_LABEL[t]}
@@ -552,6 +549,27 @@ function BirthDateStep({
   );
 }
 
+// AGE18_END("만 18세에 종료")만 생년월일에서 곧바로 정해지는 법정 날짜다(아동복지법 제38조).
+// 나머지 4개 유형은 실제 종료 시점이 개인 사정에 따라 달라서 생년월일만으로는 계산할 수
+// 없지만, "몇 살에 끝났는지"만 물어보면 그 나이 + 생년월일로 정확한 날짜를 자동 계산할 수
+// 있다 — 연/월을 직접 고르게 하는 것보다 입력 부담이 적고, AGE18_END와 계산 방식이 통일된다.
+// (연장보호의 나이 상한처럼 법적으로 딱 정해지지 않은 값은 넉넉한 선택 범위로 열어둔다.)
+const END_AGE_CONFIG: Record<Exclude<ProtectionEndType, "AGE18_END">, { question: string; ages: number[] }> = {
+  EARLY_END: { question: "몇 살에 조기 보호종료됐나요?", ages: [15, 16, 17] },
+  EXTENDED_END: {
+    question: "몇 살까지 연장보호를 받았나요?",
+    ages: [19, 20, 21, 22, 23, 24, 25, 26],
+  },
+  REPROTECTED_END: {
+    question: "재보호 후 몇 살에 다시 보호가 종료됐나요?",
+    ages: Array.from({ length: 12 }, (_, i) => 15 + i), // 15~26세
+  },
+  CURRENTLY_PROTECTED: {
+    question: "몇 살까지 보호받을 예정인가요?",
+    ages: Array.from({ length: 9 }, (_, i) => 18 + i), // 18~26세
+  },
+};
+
 function EndDateStep({
   profile,
   todayIso,
@@ -561,16 +579,20 @@ function EndDateStep({
   todayIso: string;
   onChange: (patch: Partial<OnboardingProfile>) => void;
 }) {
-  // "만 18세에 종료"는 법적으로 생년월일 + 18년으로 정확히 정해지는 날짜라 물어볼 필요가 없다
-  // (아동복지법 제38조) — 직접 계산해서 채워준다.
   const isAge18End = profile.protectionEndType === "AGE18_END";
   const computedAge18Date = isAge18End && profile.birthDate ? addYearsIso(profile.birthDate, 18) : null;
+  const ageConfig =
+    profile.protectionEndType && profile.protectionEndType !== "AGE18_END"
+      ? END_AGE_CONFIG[profile.protectionEndType]
+      : null;
 
-  // BirthDateStep과 같은 이유로 로컬 state로 선택 상태를 따로 든다 (연도만 고른 시점에
-  // profile.protectionEndDate가 아직 ""라서 화면이 다시 placeholder로 되돌아가는 것 방지).
-  const initial = parseYearMonth(profile.protectionEndDate);
-  const [year, setYear] = useState(initial.year);
-  const [month, setMonth] = useState(initial.month);
+  // 이미 골라둔 종료일이 있으면(재방문·수정) 생년월일과의 연도 차이로 나이를 거꾸로 계산해서
+  // 선택 상태를 복원한다 — chooseAge가 항상 addYearsIso(생년월일, 나이)로 만든 날짜라 정확하다.
+  const initialAge =
+    profile.protectionEndDate && profile.birthDate
+      ? Number(profile.protectionEndDate.slice(0, 4)) - Number(profile.birthDate.slice(0, 4))
+      : null;
+  const [selectedAge, setSelectedAge] = useState<number | null>(initialAge);
 
   useEffect(() => {
     if (computedAge18Date && profile.protectionEndDate !== computedAge18Date) {
@@ -579,31 +601,22 @@ function EndDateStep({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [computedAge18Date]);
 
-  const currentYear = Number(todayIso.slice(0, 4));
-  // 과거(이미 종료) ~ 미래(만 18세 도달 예정) 양쪽을 넉넉히 포괄
-  const years = Array.from({ length: 31 }, (_, i) => String(currentYear + 10 - i));
-  const months = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
-
-  const setPart = (part: "year" | "month", value: string) => {
-    const next = { year, month, [part]: value };
-    setYear(next.year);
-    setMonth(next.month);
-    onChange({ protectionEndDate: toIsoFromYearMonth(next.year, next.month) });
+  const chooseAge = (age: number) => {
+    setSelectedAge(age);
+    onChange({ protectionEndDate: profile.birthDate ? addYearsIso(profile.birthDate, age) ?? "" : "" });
   };
 
   const isFuture = !!profile.protectionEndDate && profile.protectionEndDate > todayIso;
   const remainingToEnd = isFuture ? monthsBetween(todayIso, profile.protectionEndDate) : null;
   const elapsed = !isFuture ? monthsBetween(profile.protectionEndDate, todayIso) : null;
   const dday5y = profile.protectionEndDate ? addYearsIso(profile.protectionEndDate, 5) : null;
-  // 예정일(CURRENTLY_PROTECTED)도 이미 고른 연/월 기준으로 5년 기한을 미리 계산해서 보여준다 —
+  // 예정일(CURRENTLY_PROTECTED)도 이미 고른 나이 기준으로 5년 기한을 미리 계산해서 보여준다 —
   // 실제 종료일이 나중에 바뀌면 이 값도 같이 바뀐다는 걸 문구로 알려준다.
   const remainingTo5y = profile.protectionEndDate && dday5y ? monthsBetween(todayIso, dday5y) : null;
 
   const title = isAge18End
     ? "만 18세가 되는 시점을 자동 계산했어요"
-    : profile.protectionEndType === "CURRENTLY_PROTECTED"
-      ? "보호종료 예정일이 언제인가요?"
-      : "보호가 끝난 때가 언제인가요?";
+    : ageConfig?.question ?? "보호가 끝난 때가 언제인가요?";
 
   return (
     <>
@@ -614,7 +627,7 @@ function EndDateStep({
         desc={
           isAge18End
             ? "만 18세 도달일은 법으로 정해져 있어서(아동복지법 제38조), 생년월일로 직접 계산했어요."
-            : "연도와 월만 고르면 돼요. 정확한 날짜는 몰라도 괜찮아요."
+            : "나이를 고르면 생년월일 기준으로 정확한 날짜를 자동으로 계산해요."
         }
       >
         {isAge18End ? (
@@ -635,23 +648,16 @@ function EndDateStep({
             </p>
           </div>
         ) : (
-          <div style={{ display: "flex", gap: "12px" }}>
-            <select value={year} onChange={(e) => setPart("year", e.target.value)} style={{ ...inputStyle, flex: 1 }}>
-              <option value="">연도</option>
-              {years.map((y) => (
-                <option key={y} value={y}>
-                  {y}년
-                </option>
-              ))}
-            </select>
-            <select value={month} onChange={(e) => setPart("month", e.target.value)} style={{ ...inputStyle, flex: 1 }}>
-              <option value="">월</option>
-              {months.map((m) => (
-                <option key={m} value={m}>
-                  {Number(m)}월
-                </option>
-              ))}
-            </select>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+            {ageConfig?.ages.map((age) => (
+              <button
+                key={age}
+                onClick={() => chooseAge(age)}
+                style={{ ...choiceButtonStyle(selectedAge === age), flex: "unset", padding: "12px 18px" }}
+              >
+                만 {age}세
+              </button>
+            ))}
           </div>
         )}
 
