@@ -988,6 +988,13 @@ function PersonalProfileCard({
       value: profile.interestCategories.map((c) => INTEREST_CATEGORY_LABEL[c]).join(", "),
     });
   }
+  const receivedBenefits = profile.currentBenefits
+    .filter((id) => id !== "NONE" && id !== "UNKNOWN")
+    .map((id) => PROGRAMS.find((p) => p.id === id)?.name)
+    .filter((name): name is string => !!name);
+  if (receivedBenefits.length > 0) {
+    rows.push({ icon: "🎁", label: "받는 지원", value: receivedBenefits.join(", ") });
+  }
 
   return (
     <section style={CARD_STYLE}>
