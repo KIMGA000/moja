@@ -12,6 +12,7 @@ type PostRow = {
   body: string;
   author: string;
   badge: string | null;
+  user_id: string | null;
   created_at: string;
 };
 
@@ -20,6 +21,7 @@ type CommentRow = {
   post_id: string;
   author: string;
   body: string;
+  user_id: string | null;
   created_at: string;
 };
 
@@ -36,6 +38,7 @@ function toPost(row: PostRow, commentCount: number): Post {
     body: row.body,
     author: row.author,
     badge: row.badge,
+    userId: row.user_id,
     createdAt: new Date(row.created_at).getTime(),
     commentCount,
   };
@@ -47,6 +50,7 @@ function toComment(row: CommentRow): Comment {
     postId: row.post_id,
     author: row.author,
     body: row.body,
+    userId: row.user_id,
     createdAt: new Date(row.created_at).getTime(),
   };
 }

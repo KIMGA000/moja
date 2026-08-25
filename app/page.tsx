@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   API_SAMPLE_ITEMS,
@@ -13,6 +13,10 @@ import {
   EligibilityOnboarding,
   EligibilityResultScreen,
 } from "./components/EligibilityFlow";
+import { AuthBar } from "./components/AuthBar";
+import { getNickname, useAuthSession } from "./hooks/useAuthSession";
+import { addBookmark, bookmarkKey, listBookmarkKeys, removeBookmark } from "../lib/bookmarks";
+import { supabase } from "../lib/supabase";
 import {
   CARD_STYLE,
   COLORS,
@@ -59,8 +63,65 @@ export default function Home() {
   const [eligError, setEligError] = useState<string | null>(null);
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
+  const { session } = useAuthSession();
+  const [savedProfile, setSavedProfile] = useState<OnboardingProfile | null>(null);
+
+  // 로그인한 사용자는 계정에 저장된 온보딩 답변이 있으면 매번 다시 입력하지 않아도 되도록,
+  // 로그인 시 저장된 자격 진단 프로필을 불러와둔다. 신원인증이 아니라 "같은 사람 것" 확인용
+  // 로그인이라, 로그인 안 해도 정밀 진단 자체는 그대로 가능하다.
+  useEffect(() => {
+    if (!session || !supabase) {
+      setSavedProfile(null);
+      return;
+    }
+    supabase
+      .from("profiles")
+      .select("onboarding_profile")
+      .eq("id", session.user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        const profile = data?.onboarding_profile as OnboardingProfile | null | undefined;
+        if (profile) {
+          setSavedProfile(profile);
+          setEligProfile(profile);
+          ensureEligDataLoaded();
+        }
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
+
+  const [bookmarkedKeys, setBookmarkedKeys] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!session) {
+      setBookmarkedKeys(new Set());
+      return;
+    }
+    listBookmarkKeys(session.user.id).then(setBookmarkedKeys);
+  }, [session]);
+
+  const toggleBookmark = (source: string, sourceId: string) => {
+    const key = bookmarkKey(source, sourceId);
+    const wasBookmarked = bookmarkedKeys.has(key);
+    setBookmarkedKeys((prev) => {
+      const next = new Set(prev);
+      if (wasBookmarked) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+    (wasBookmarked ? removeBookmark(source, sourceId) : addBookmark(source, sourceId)).catch(() => {
+      // 실패하면 낙관적 업데이트를 되돌린다.
+      setBookmarkedKeys((prev) => {
+        const next = new Set(prev);
+        if (wasBookmarked) next.add(key);
+        else next.delete(key);
+        return next;
+      });
+    });
+  };
+
   const restart = () => {
-    setEligProfile(EMPTY_PROFILE);
+    setEligProfile(savedProfile ?? EMPTY_PROFILE);
     setScreen("landing");
   };
 
@@ -116,7 +177,24 @@ export default function Home() {
 
   const openEligOnboarding = () => {
     ensureEligDataLoaded();
-    setScreen("eligOnboarding");
+    if (savedProfile) {
+      // 이미 계정에 저장된 답변이 있으면 온보딩 질문을 건너뛰고 바로 결과로 간다.
+      setEligProfile(savedProfile);
+      setScreen("eligResult");
+    } else {
+      setScreen("eligOnboarding");
+    }
+  };
+
+  const handleEligSubmit = async () => {
+    if (session && supabase) {
+      await supabase.from("profiles").upsert(
+        { id: session.user.id, onboarding_profile: eligProfile, updated_at: new Date().toISOString() },
+        { onConflict: "id" }
+      );
+      setSavedProfile(eligProfile);
+    }
+    setScreen("eligResult");
   };
 
   return (
@@ -130,7 +208,39 @@ export default function Home() {
         }}>
         <TopNav screen={screen} onHome={restart} />
 
-        {screen === "landing" && (
+        {screen === "landing" && savedProfile && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <button
+                onClick={() => setScreen("eligOnboarding")}
+                style={{ background: "none", border: "none", fontSize: "13px", fontWeight: 700, color: COLORS.inkMuted }}
+              >
+                🔁 진단 다시하기
+              </button>
+              <Link
+                href="/community"
+                style={{ fontSize: "13px", fontWeight: 700, color: COLORS.inkMuted, textDecoration: "none" }}
+              >
+                💬 커뮤니티
+              </Link>
+            </div>
+            <EligibilityResultScreen
+              profile={eligProfile}
+              todayIso={todayIso}
+              items={eligItems}
+              loading={eligLoading}
+              error={eligError}
+              nickname={session ? getNickname(session) : null}
+              onEditProfile={() => setScreen("eligOnboarding")}
+              onBack={() => {}}
+              hideFooterActions
+              bookmarkedKeys={bookmarkedKeys}
+              onToggleBookmark={session ? toggleBookmark : undefined}
+            />
+          </div>
+        )}
+
+        {screen === "landing" && !savedProfile && (
           <Landing
             onApiPreview={openApiPreview}
             onEligStart={openEligOnboarding}
@@ -161,7 +271,7 @@ export default function Home() {
             profile={eligProfile}
             todayIso={todayIso}
             onChange={setEligProfile}
-            onSubmit={() => setScreen("eligResult")}
+            onSubmit={handleEligSubmit}
             onCancel={() => setScreen("landing")}
           />
         )}
@@ -173,8 +283,11 @@ export default function Home() {
             items={eligItems}
             loading={eligLoading}
             error={eligError}
+            nickname={session ? getNickname(session) : null}
             onEditProfile={() => setScreen("eligOnboarding")}
             onBack={restart}
+            bookmarkedKeys={bookmarkedKeys}
+            onToggleBookmark={session ? toggleBookmark : undefined}
           />
         )}
       </main>
@@ -200,6 +313,7 @@ function SiteHeader({ onHome }: { onHome: () => void }) {
           padding: "14px 20px",
           display: "flex",
           alignItems: "center",
+          justifyContent: "space-between",
           gap: "8px",
         }}>
         <button
@@ -232,6 +346,7 @@ function SiteHeader({ onHome }: { onHome: () => void }) {
             MOJA
           </span>
         </button>
+        <AuthBar />
       </div>
     </header>
   );
@@ -307,7 +422,7 @@ function Landing({
             color: "#3f3f46",
             listStyle: "none",
           }}>
-          <li>✅ 12개 질문으로 21개 제도 전부 자격 판별</li>
+          <li>✅ 12개 질문으로 ㅈ자격 판별</li>
           <li>✅ 못 받는 지원도 이유와 함께 확인</li>
           <li>✅ 중복수급 충돌 미리 경고</li>
         </ul>
