@@ -1331,7 +1331,9 @@ export function EligibilityResultScreen({
         </>
       ) : (
         <p style={{ fontSize: "12px", color: COLORS.inkMuted, textAlign: "center" }}>
-          💡 로그인하면 이 진단 결과가 저장되고, 보호종료까지 남은 기간 같은 정보도 더 개인화해서 보여드려요.
+          💡 로그인하면 이 진단 결과가 저장되고, 보호종료까지 남은 기간 같은 정보도 더 개인화해서
+          보여드려요. 관심공고 저장, 지역·현재상태·관심분야·상시기간별로 공고를 걸러보는 기능도
+          로그인하면 쓸 수 있어요.
         </p>
       )}
 
@@ -1359,37 +1361,39 @@ export function EligibilityResultScreen({
         </p>
       </section>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
-        <button onClick={() => setViewTab("matched")} style={tabButtonStyle(viewTab === "matched")}>
-          매칭 결과
-        </button>
-        {onToggleBookmark && (
-          <button onClick={() => setViewTab("bookmarked")} style={tabButtonStyle(viewTab === "bookmarked")}>
-            ⭐ 관심공고
+      {nickname && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
+          <button onClick={() => setViewTab("matched")} style={tabButtonStyle(viewTab === "matched")}>
+            매칭 결과
           </button>
-        )}
-        <button onClick={() => setViewTab("all")} style={tabButtonStyle(viewTab === "all")}>
-          전체 공고 보기
-        </button>
-        <button onClick={() => setViewTab("region")} style={tabButtonStyle(viewTab === "region")}>
-          지역별 보기
-        </button>
-        <button onClick={() => setViewTab("status")} style={tabButtonStyle(viewTab === "status")}>
-          현재상태별 보기
-        </button>
-        <button onClick={() => setViewTab("interest")} style={tabButtonStyle(viewTab === "interest")}>
-          관심분야로 보기
-        </button>
-        <button onClick={() => setViewTab("period")} style={tabButtonStyle(viewTab === "period")}>
-          상시/기간별 보기
-        </button>
-      </div>
+          {onToggleBookmark && (
+            <button onClick={() => setViewTab("bookmarked")} style={tabButtonStyle(viewTab === "bookmarked")}>
+              ⭐ 관심공고
+            </button>
+          )}
+          <button onClick={() => setViewTab("all")} style={tabButtonStyle(viewTab === "all")}>
+            전체 공고 보기
+          </button>
+          <button onClick={() => setViewTab("region")} style={tabButtonStyle(viewTab === "region")}>
+            지역별 보기
+          </button>
+          <button onClick={() => setViewTab("status")} style={tabButtonStyle(viewTab === "status")}>
+            현재상태별 보기
+          </button>
+          <button onClick={() => setViewTab("interest")} style={tabButtonStyle(viewTab === "interest")}>
+            관심분야로 보기
+          </button>
+          <button onClick={() => setViewTab("period")} style={tabButtonStyle(viewTab === "period")}>
+            상시/기간별 보기
+          </button>
+        </div>
+      )}
 
-      {viewTab === "bookmarked" && (
+      {nickname && viewTab === "bookmarked" && (
         <AnnouncementListView items={bookmarkedItems} bookmarkedKeys={bookmarkedKeys} onToggleBookmark={onToggleBookmark} />
       )}
 
-      {viewTab !== "matched" && viewTab !== "bookmarked" && (
+      {nickname && viewTab !== "matched" && viewTab !== "bookmarked" && (
         <AnnouncementBrowser
           mode={viewTab}
           items={items ?? []}
@@ -1399,7 +1403,7 @@ export function EligibilityResultScreen({
         />
       )}
 
-      {viewTab === "matched" && (
+      {(!nickname || viewTab === "matched") && (
         <>
       <section>
         <h3 style={{ fontSize: "14px", fontWeight: 800, color: COLORS.success, marginBottom: "12px" }}>
