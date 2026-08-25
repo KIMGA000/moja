@@ -1022,6 +1022,21 @@ function tabButtonStyle(active: boolean) {
   } as const;
 }
 
+// 메인 탭(매칭 결과/전체 공고 보기/지역별 보기 ...) 안에서 다시 고르는 서브 필터(지역명/상태/관심분야
+// 하나) 버튼. tabButtonStyle과 똑같이 생기면 "탭 안에 탭이 또 있다"는 게 눈에 안 들어와서, 더 작고
+// 옅은 톤(보라색 계열)으로 한 단계 낮춰서 메인 탭과 위계가 구분되게 한다.
+function subTabButtonStyle(active: boolean) {
+  return {
+    padding: "7px 12px",
+    borderRadius: "999px",
+    border: `1px solid ${active ? COLORS.accentViolet : COLORS.cardBorder}`,
+    background: active ? COLORS.accentVioletBg : "#ffffff",
+    color: active ? COLORS.accentViolet : COLORS.inkMuted,
+    fontSize: "12px",
+    fontWeight: 700,
+  } as const;
+}
+
 // 공고 설명 원문이 법조문투 긴 문단이라 한눈에 읽기 어려워서, classify.ts가 미리 찾아둔
 // 핵심 키워드를 #태그로 붙여 빠르게 훑어볼 수 있게 한다 (원문 문단은 그대로 두고 보조용으로만).
 function DescriptionTags({ tags }: { tags: string[] }) {
@@ -1163,9 +1178,9 @@ function AnnouncementBrowser({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
       {mode === "region" && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
           {REGIONS.map((r) => (
-            <button key={r} onClick={() => setRegion(r)} style={tabButtonStyle(region === r)}>
+            <button key={r} onClick={() => setRegion(r)} style={subTabButtonStyle(region === r)}>
               {r}
             </button>
           ))}
@@ -1174,9 +1189,9 @@ function AnnouncementBrowser({
 
       {mode === "status" && (
         <>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
             {(Object.keys(CURRENT_STATUS_LABEL) as CurrentStatus[]).map((s) => (
-              <button key={s} onClick={() => setStatus(s)} style={tabButtonStyle(status === s)}>
+              <button key={s} onClick={() => setStatus(s)} style={subTabButtonStyle(status === s)}>
                 {CURRENT_STATUS_LABEL[s]}
               </button>
             ))}
@@ -1189,12 +1204,12 @@ function AnnouncementBrowser({
       )}
 
       {mode === "interest" && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
           {(Object.keys(INTEREST_CATEGORY_LABEL) as InterestCategory[]).map((category) => (
             <button
               key={category}
               onClick={() => toggleInterest(category)}
-              style={tabButtonStyle(interestFilter.has(category))}
+              style={subTabButtonStyle(interestFilter.has(category))}
             >
               {INTEREST_CATEGORY_LABEL[category]}
             </button>
@@ -1204,11 +1219,11 @@ function AnnouncementBrowser({
 
       {mode === "period" && (
         <>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-            <button onClick={() => setPeriodFilter("always")} style={tabButtonStyle(periodFilter === "always")}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+            <button onClick={() => setPeriodFilter("always")} style={subTabButtonStyle(periodFilter === "always")}>
               상시 공고
             </button>
-            <button onClick={() => setPeriodFilter("fixed")} style={tabButtonStyle(periodFilter === "fixed")}>
+            <button onClick={() => setPeriodFilter("fixed")} style={subTabButtonStyle(periodFilter === "fixed")}>
               기간 공고
             </button>
           </div>
