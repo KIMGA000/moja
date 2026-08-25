@@ -150,6 +150,9 @@ create table if not exists community_posts (
   body text not null,
   author text not null,
   badge text,
+  -- 로그인 없이 쓰면 null(진짜 익명, 영구히 수정·삭제 불가). 로그인 상태로 쓰면 auth.uid()가
+  -- 자동으로 채워져서, author를 "익명"으로 표시해도 본인은 나중에 수정·삭제할 수 있다.
+  user_id uuid references auth.users(id) on delete set null default auth.uid(),
   created_at timestamptz not null default now()
 );
 
@@ -158,10 +161,16 @@ create table if not exists community_comments (
   post_id uuid not null references community_posts(id) on delete cascade,
   author text not null,
   body text not null,
+  user_id uuid references auth.users(id) on delete set null default auth.uid(),
   created_at timestamptz not null default now()
 );
 
+alter table community_posts add column if not exists user_id uuid references auth.users(id) on delete set null default auth.uid();
+alter table community_comments add column if not exists user_id uuid references auth.users(id) on delete set null default auth.uid();
+
 create index if not exists community_comments_post_id_idx on community_comments(post_id);
+create index if not exists community_posts_user_id_idx on community_posts(user_id);
+create index if not exists community_comments_user_id_idx on community_comments(user_id);
 
 alter table community_posts enable row level security;
 alter table community_comments enable row level security;
@@ -170,8 +179,85 @@ drop policy if exists "누구나 게시글 조회 가능" on community_posts;
 create policy "누구나 게시글 조회 가능" on community_posts for select to anon, authenticated using (true);
 drop policy if exists "누구나 게시글 작성 가능" on community_posts;
 create policy "누구나 게시글 작성 가능" on community_posts for insert to anon, authenticated with check (true);
+drop policy if exists "본인 게시글만 수정 가능" on community_posts;
+create policy "본인 게시글만 수정 가능" on community_posts for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "본인 게시글만 삭제 가능" on community_posts;
+create policy "본인 게시글만 삭제 가능" on community_posts for delete to authenticated using (auth.uid() = user_id);
 
 drop policy if exists "누구나 댓글 조회 가능" on community_comments;
 create policy "누구나 댓글 조회 가능" on community_comments for select to anon, authenticated using (true);
 drop policy if exists "누구나 댓글 작성 가능" on community_comments;
 create policy "누구나 댓글 작성 가능" on community_comments for insert to anon, authenticated with check (true);
+drop policy if exists "본인 댓글만 수정 가능" on community_comments;
+create policy "본인 댓글만 수정 가능" on community_comments for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "본인 댓글만 삭제 가능" on community_comments;
+create policy "본인 댓글만 삭제 가능" on community_comments for delete to authenticated using (auth.uid() = user_id);
+
+-- =========================================================================
+-- 로그인(카카오) 기반 개인화 프로필 — 신원인증은 아직 없고, 카카오 로그인만으로
+-- "이 저장된 데이터가 진짜 그 사람 것"임을 보장하는 최소 계정 계층이다.
+-- 온보딩 자격 진단 답변을 저장해두면 재방문 시 다시 입력하지 않아도 되고,
+-- 이후 알림·로드맵 기능이 이 테이블을 기준으로 동작한다.
+-- =========================================================================
+
+create table if not exists profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  nickname text,
+  onboarding_profile jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table profiles enable row level security;
+
+drop policy if exists "본인 프로필만 조회 가능" on profiles;
+create policy "본인 프로필만 조회 가능" on profiles for select to authenticated using (auth.uid() = id);
+drop policy if exists "본인 프로필만 생성 가능" on profiles;
+create policy "본인 프로필만 생성 가능" on profiles for insert to authenticated with check (auth.uid() = id);
+drop policy if exists "본인 프로필만 수정 가능" on profiles;
+create policy "본인 프로필만 수정 가능" on profiles for update to authenticated using (auth.uid() = id) with check (auth.uid() = id);
+
+-- =========================================================================
+-- 관심공고(북마크) — 로그인한 사용자가 개인화 화면에서 공고를 별표 저장/해제.
+-- =========================================================================
+
+create table if not exists bookmarks (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  source text not null,
+  source_id text not null,
+  created_at timestamptz not null default now(),
+  unique (user_id, source, source_id)
+);
+
+create index if not exists bookmarks_user_id_idx on bookmarks(user_id);
+
+alter table bookmarks enable row level security;
+
+drop policy if exists "본인 북마크만 조회 가능" on bookmarks;
+create policy "본인 북마크만 조회 가능" on bookmarks for select to authenticated using (auth.uid() = user_id);
+drop policy if exists "본인 북마크만 추가 가능" on bookmarks;
+create policy "본인 북마크만 추가 가능" on bookmarks for insert to authenticated with check (auth.uid() = user_id);
+drop policy if exists "본인 북마크만 삭제 가능" on bookmarks;
+create policy "본인 북마크만 삭제 가능" on bookmarks for delete to authenticated using (auth.uid() = user_id);
+
+-- =========================================================================
+-- 공고 클릭 로그 — "공식 안내 페이지 바로가기"를 얼마나 누르는지 집계용.
+-- ⚠️ 의도적으로 user_id를 안 넣는다: 누가 눌렀는지가 아니라 "어떤 공고가 인기 있는지"
+-- 집계만 필요하고, 개인 식별이 가능한 클릭 로그는 만들지 않기로 했다 (2026-08-21 논의).
+-- select 정책이 없어서 service role(관리자)만 조회 가능 — 클라이언트/anon은 insert만 가능.
+-- =========================================================================
+
+create table if not exists announcement_clicks (
+  id bigint generated always as identity primary key,
+  source text not null,
+  source_id text not null,
+  clicked_at timestamptz not null default now()
+);
+
+create index if not exists announcement_clicks_source_idx on announcement_clicks(source, source_id);
+
+alter table announcement_clicks enable row level security;
+
+drop policy if exists "누구나 클릭 기록 추가 가능" on announcement_clicks;
+create policy "누구나 클릭 기록 추가 가능" on announcement_clicks for insert to anon, authenticated with check (true);

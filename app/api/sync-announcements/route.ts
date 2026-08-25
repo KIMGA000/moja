@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import type { WelfareItem, WelfareSource } from "../../data/apiPreview";
 import { classifyItem } from "../../data/classify";
 import { createSupabaseAdminClient } from "../../../lib/supabase";
@@ -114,7 +114,21 @@ async function syncSource(
   return { fetched: rawFetchedCount, matched: candidateItems.length, skipped, upserted };
 }
 
-export async function GET() {
+// Vercel Cron이 매일 새벽 5시(KST)에 이 라우트를 자동 호출한다 (vercel.json 참고).
+// CRON_SECRET을 설정해두면 Vercel이 그 값을 Authorization 헤더로 실어서 보내주는데,
+// 이 라우트는 8개 외부 API를 호출하는 무거운 작업이라 아무나 반복 호출 못 하게 막아둔다.
+// 환경변수를 아직 안 만들었다면(로컬 수동 테스트 등) 검사를 건너뛴다.
+function isAuthorizedCronRequest(req: NextRequest): boolean {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return true;
+  return req.headers.get("authorization") === `Bearer ${secret}`;
+}
+
+export async function GET(req: NextRequest) {
+  if (!isAuthorizedCronRequest(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const apiKey = process.env.WELFARE_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
