@@ -67,7 +67,7 @@ export default function CommunityPage() {
             같은 처지의 이야기
           </h1>
           <p style={{ fontSize: "13px", color: COLORS.onDarkMuted, marginTop: "6px" }}>
-            로그인 없이 익명 닉네임으로 글을 쓰고 볼 수 있어요.
+            둘러보는 건 누구나 자유롭게, 글쓰기·댓글은 로그인 후에 할 수 있어요.
           </p>
         </header>
 

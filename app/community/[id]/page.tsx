@@ -12,6 +12,7 @@ import {
   type Post,
 } from "../../data/community";
 import { useAuthSession, getNickname } from "../../hooks/useAuthSession";
+import { supabase } from "../../../lib/supabase";
 import {
   addCommentAsUser,
   deleteComment,
@@ -23,7 +24,7 @@ import {
 export default function PostDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { session } = useAuthSession();
+  const { session, loaded } = useAuthSession();
   const [post, setPost] = useState<Post | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,18 +64,10 @@ export default function PostDetailPage() {
   const commentAuthor = session && commentAsSelf ? getNickname(session) : nickname;
 
   const handleComment = async () => {
-    if (!commentBody.trim() || submitting) return;
+    if (!commentBody.trim() || submitting || !session) return;
     setSubmitting(true);
     try {
-      if (session) {
-        await addCommentAsUser(params.id, { author: commentAuthor, body: commentBody.trim() });
-      } else {
-        await fetch(`/api/posts/${params.id}/comments`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ author: commentAuthor, commentBody }),
-        });
-      }
+      await addCommentAsUser(params.id, { author: commentAuthor, body: commentBody.trim() });
       setCommentBody("");
       load();
     } finally {
@@ -267,6 +260,40 @@ export default function PostDetailPage() {
               })}
             </div>
 
+            {loaded && !session && (
+              <div
+                style={{
+                  ...CARD_STYLE,
+                  textAlign: "center",
+                  padding: "20px",
+                  marginBottom: "10px",
+                }}
+              >
+                <p style={{ fontSize: "13px", color: COLORS.inkMuted, marginBottom: "12px" }}>
+                  댓글을 남기려면 로그인해주세요.
+                </p>
+                <button
+                  onClick={() =>
+                    supabase?.auth.signInWithOAuth({
+                      provider: "kakao",
+                      options: { redirectTo: window.location.href },
+                    })
+                  }
+                  style={{
+                    background: "#FEE500",
+                    border: "none",
+                    borderRadius: "999px",
+                    padding: "8px 16px",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    color: "#191919",
+                  }}
+                >
+                  카카오로 로그인
+                </button>
+              </div>
+            )}
+
             {session && (
               <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
                 <button
@@ -300,31 +327,33 @@ export default function PostDetailPage() {
               </div>
             )}
 
-            <div style={{ display: "flex", gap: "8px" }}>
-              <input
-                value={commentBody}
-                onChange={(e) => setCommentBody(e.target.value)}
-                placeholder="댓글을 남겨보세요"
-                style={{
-                  flex: 1,
-                  padding: "12px 14px",
-                  borderRadius: "12px",
-                  border: `1.5px solid ${COLORS.cardBorder}`,
-                  fontSize: "14px",
-                }}
-              />
-              <button
-                onClick={handleComment}
-                disabled={!commentBody.trim() || submitting}
-                style={{
-                  ...(commentBody.trim() ? PRIMARY_BUTTON : PRIMARY_BUTTON_DISABLED),
-                  padding: "0 18px",
-                  width: "auto",
-                }}
-              >
-                등록
-              </button>
-            </div>
+            {session && (
+              <div style={{ display: "flex", gap: "8px" }}>
+                <input
+                  value={commentBody}
+                  onChange={(e) => setCommentBody(e.target.value)}
+                  placeholder="댓글을 남겨보세요"
+                  style={{
+                    flex: 1,
+                    padding: "12px 14px",
+                    borderRadius: "12px",
+                    border: `1.5px solid ${COLORS.cardBorder}`,
+                    fontSize: "14px",
+                  }}
+                />
+                <button
+                  onClick={handleComment}
+                  disabled={!commentBody.trim() || submitting}
+                  style={{
+                    ...(commentBody.trim() ? PRIMARY_BUTTON : PRIMARY_BUTTON_DISABLED),
+                    padding: "0 18px",
+                    width: "auto",
+                  }}
+                >
+                  등록
+                </button>
+              </div>
+            )}
           </>
         )}
       </main>

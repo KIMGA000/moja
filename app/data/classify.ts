@@ -142,6 +142,17 @@ function extractDescriptionTags(text: string): string[] {
   return [...found];
 }
 
+// "상시"(정해진 신청 기간 없이 계속 접수) vs "기간"(특정 접수기간·마감일이 있음) 공고 구분.
+// deadline 필드 자체가 없는 소스(중앙/지자체 복지서비스는 매월 지급되는 수당류라 마감일 개념이
+// 없음)는 상시로 본다. deadline 텍스트에 날짜 대신 "상시/연중/수시" 같은 표현만 있는 경우도 상시.
+const ALWAYS_OPEN_KEYWORDS = ["상시", "연중", "수시"];
+
+export function isAlwaysOpenAnnouncement(deadline: string | null | undefined): boolean {
+  const trimmed = deadline?.trim();
+  if (!trimmed) return true;
+  return ALWAYS_OPEN_KEYWORDS.some((kw) => trimmed.includes(kw));
+}
+
 function extractInterestCategories(item: WelfareItem): InterestCategory[] {
   const categories = new Set<InterestCategory>();
   for (const theme of item.themes) {

@@ -169,8 +169,8 @@ create table if not exists community_posts (
   body text not null,
   author text not null,
   badge text,
-  -- 로그인 없이 쓰면 null(진짜 익명, 영구히 수정·삭제 불가). 로그인 상태로 쓰면 auth.uid()가
-  -- 자동으로 채워져서, author를 "익명"으로 표시해도 본인은 나중에 수정·삭제할 수 있다.
+  -- 글쓰기는 로그인해야만 가능(2026-08-25부터). auth.uid()가 자동으로 채워져서, author를
+  -- "익명"으로 표시해도 본인은 나중에 수정·삭제할 수 있다.
   user_id uuid references auth.users(id) on delete set null default auth.uid(),
   created_at timestamptz not null default now()
 );
@@ -197,7 +197,8 @@ alter table community_comments enable row level security;
 drop policy if exists "누구나 게시글 조회 가능" on community_posts;
 create policy "누구나 게시글 조회 가능" on community_posts for select to anon, authenticated using (true);
 drop policy if exists "누구나 게시글 작성 가능" on community_posts;
-create policy "누구나 게시글 작성 가능" on community_posts for insert to anon, authenticated with check (true);
+drop policy if exists "로그인해야 게시글 작성 가능" on community_posts;
+create policy "로그인해야 게시글 작성 가능" on community_posts for insert to authenticated with check (auth.uid() = user_id);
 drop policy if exists "본인 게시글만 수정 가능" on community_posts;
 create policy "본인 게시글만 수정 가능" on community_posts for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
 drop policy if exists "본인 게시글만 삭제 가능" on community_posts;
@@ -206,7 +207,8 @@ create policy "본인 게시글만 삭제 가능" on community_posts for delete 
 drop policy if exists "누구나 댓글 조회 가능" on community_comments;
 create policy "누구나 댓글 조회 가능" on community_comments for select to anon, authenticated using (true);
 drop policy if exists "누구나 댓글 작성 가능" on community_comments;
-create policy "누구나 댓글 작성 가능" on community_comments for insert to anon, authenticated with check (true);
+drop policy if exists "로그인해야 댓글 작성 가능" on community_comments;
+create policy "로그인해야 댓글 작성 가능" on community_comments for insert to authenticated with check (auth.uid() = user_id);
 drop policy if exists "본인 댓글만 수정 가능" on community_comments;
 create policy "본인 댓글만 수정 가능" on community_comments for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
 drop policy if exists "본인 댓글만 삭제 가능" on community_comments;

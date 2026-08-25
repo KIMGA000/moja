@@ -17,6 +17,7 @@ import {
 } from "../data/eligibility";
 import { matchRealItems, type EvaluatedRealItem } from "../data/realMatch";
 import { SOURCE_LABEL, type AnnouncementRecord, type WelfareItem } from "../data/apiPreview";
+import { isAlwaysOpenAnnouncement } from "../data/classify";
 import { logAnnouncementClick } from "../../lib/bookmarks";
 import {
   CARD_STYLE,
@@ -1028,7 +1029,12 @@ function AnnouncementListView({
         {items.map((item, i) => (
           <section key={`${item.source}-${item.servId}-${i}`} style={{ ...CARD_STYLE, padding: "22px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <span style={pillBadge("violet")}>{SOURCE_LABEL[item.source]}</span>
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                <span style={pillBadge("violet")}>{SOURCE_LABEL[item.source]}</span>
+                <span style={pillBadge(isAlwaysOpenAnnouncement(item.deadline) ? "lime" : "neutral")}>
+                  {isAlwaysOpenAnnouncement(item.deadline) ? "상시" : "기간"}
+                </span>
+              </div>
               {onToggleBookmark && (
                 <button
                   onClick={() => onToggleBookmark(item.source, item.servId)}
@@ -1065,7 +1071,7 @@ function AnnouncementListView({
   );
 }
 
-type BrowseMode = "all" | "region" | "status" | "interest";
+type BrowseMode = "all" | "region" | "status" | "interest" | "period";
 
 function AnnouncementBrowser({
   mode,
@@ -1085,6 +1091,7 @@ function AnnouncementBrowser({
   const [interestFilter, setInterestFilter] = useState<Set<InterestCategory>>(
     () => new Set(profile.interestCategories)
   );
+  const [periodFilter, setPeriodFilter] = useState<"always" | "fixed">("always");
 
   const toggleInterest = (category: InterestCategory) => {
     setInterestFilter((prev) => {
@@ -1103,6 +1110,11 @@ function AnnouncementBrowser({
     }
     if (mode === "interest" && interestFilter.size > 0) {
       if (!item.interestCategories.some((c) => interestFilter.has(c as InterestCategory))) return false;
+    }
+    if (mode === "period") {
+      const alwaysOpen = isAlwaysOpenAnnouncement(item.deadline);
+      if (periodFilter === "always" && !alwaysOpen) return false;
+      if (periodFilter === "fixed" && alwaysOpen) return false;
     }
     return true;
   });
@@ -1149,6 +1161,24 @@ function AnnouncementBrowser({
         </div>
       )}
 
+      {mode === "period" && (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+            <button onClick={() => setPeriodFilter("always")} style={tabButtonStyle(periodFilter === "always")}>
+              상시 공고
+            </button>
+            <button onClick={() => setPeriodFilter("fixed")} style={tabButtonStyle(periodFilter === "fixed")}>
+              기간 공고
+            </button>
+          </div>
+          <p style={{ fontSize: "11px", color: COLORS.inkMuted }}>
+            {periodFilter === "always"
+              ? "정해진 접수기간 없이 언제든 신청할 수 있는 공고예요."
+              : "접수기간·마감일이 정해져 있는 공고예요. 마감일을 놓치지 않게 확인해주세요."}
+          </p>
+        </>
+      )}
+
       <AnnouncementListView items={filtered} bookmarkedKeys={bookmarkedKeys} onToggleBookmark={onToggleBookmark} />
     </div>
   );
@@ -1183,9 +1213,12 @@ export function EligibilityResultScreen({
     () => (items ? matchRealItems(items, profile, todayIso) : null),
     [items, profile, todayIso]
   );
-  const [showBookmarkedOnly, setShowBookmarkedOnly] = useState(false);
-  const [viewTab, setViewTab] = useState<"matched" | BrowseMode>("matched");
+  const [viewTab, setViewTab] = useState<"matched" | "bookmarked" | BrowseMode>("matched");
   const isBookmarked = (source: string, sourceId: string) => bookmarkedKeys?.has(`${source}:${sourceId}`) ?? false;
+  const bookmarkedItems = useMemo(
+    () => (items ?? []).filter((item) => isBookmarked(item.source, item.servId)),
+    [items, bookmarkedKeys]
+  );
 
   if (loading || !summary) {
     return (
@@ -1232,6 +1265,11 @@ export function EligibilityResultScreen({
         <button onClick={() => setViewTab("matched")} style={tabButtonStyle(viewTab === "matched")}>
           매칭 결과
         </button>
+        {onToggleBookmark && (
+          <button onClick={() => setViewTab("bookmarked")} style={tabButtonStyle(viewTab === "bookmarked")}>
+            ⭐ 관심공고
+          </button>
+        )}
         <button onClick={() => setViewTab("all")} style={tabButtonStyle(viewTab === "all")}>
           전체 공고 보기
         </button>
@@ -1244,25 +1282,16 @@ export function EligibilityResultScreen({
         <button onClick={() => setViewTab("interest")} style={tabButtonStyle(viewTab === "interest")}>
           관심분야로 보기
         </button>
-        {viewTab === "matched" && onToggleBookmark && (
-          <button
-            onClick={() => setShowBookmarkedOnly((prev) => !prev)}
-            style={{
-              padding: "8px 14px",
-              borderRadius: "999px",
-              border: `1.5px solid ${showBookmarkedOnly ? COLORS.ink : COLORS.cardBorder}`,
-              background: showBookmarkedOnly ? COLORS.ink : "#ffffff",
-              color: showBookmarkedOnly ? "#ffffff" : COLORS.inkMuted,
-              fontSize: "12px",
-              fontWeight: 700,
-            }}
-          >
-            {showBookmarkedOnly ? "⭐" : "☆"} 관심공고만 보기
-          </button>
-        )}
+        <button onClick={() => setViewTab("period")} style={tabButtonStyle(viewTab === "period")}>
+          상시/기간별 보기
+        </button>
       </div>
 
-      {viewTab !== "matched" && (
+      {viewTab === "bookmarked" && (
+        <AnnouncementListView items={bookmarkedItems} bookmarkedKeys={bookmarkedKeys} onToggleBookmark={onToggleBookmark} />
+      )}
+
+      {viewTab !== "matched" && viewTab !== "bookmarked" && (
         <AnnouncementBrowser
           mode={viewTab}
           items={items ?? []}
@@ -1283,7 +1312,6 @@ export function EligibilityResultScreen({
             <p style={{ fontSize: "13px", color: COLORS.onDarkMuted }}>조건에 맞는 지원을 찾지 못했어요.</p>
           )}
           {summary.eligible
-            .filter((item) => !showBookmarkedOnly || isBookmarked(item.source, item.servId))
             .map((item, i) => (
               <RealItemCard
                 key={`${item.source}-${item.servId}-${i}`}
@@ -1303,7 +1331,6 @@ export function EligibilityResultScreen({
           </h3>
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             {summary.uncertain
-              .filter((item) => !showBookmarkedOnly || isBookmarked(item.source, item.servId))
               .map((item, i) => (
                 <RealItemCard
                   key={`${item.source}-${item.servId}-${i}`}
