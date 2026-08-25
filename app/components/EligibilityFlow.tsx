@@ -561,7 +561,9 @@ function EndDateStep({
   const remainingToEnd = isFuture ? monthsBetween(todayIso, profile.protectionEndDate) : null;
   const elapsed = !isFuture ? monthsBetween(profile.protectionEndDate, todayIso) : null;
   const dday5y = profile.protectionEndDate ? addYearsIso(profile.protectionEndDate, 5) : null;
-  const remainingTo5y = !isFuture && profile.protectionEndDate ? monthsBetween(todayIso, dday5y) : null;
+  // 예정일(CURRENTLY_PROTECTED)도 이미 고른 연/월 기준으로 5년 기한을 미리 계산해서 보여준다 —
+  // 실제 종료일이 나중에 바뀌면 이 값도 같이 바뀐다는 걸 문구로 알려준다.
+  const remainingTo5y = profile.protectionEndDate && dday5y ? monthsBetween(todayIso, dday5y) : null;
 
   const title =
     profile.protectionEndType === "CURRENTLY_PROTECTED"
@@ -608,12 +610,22 @@ function EndDateStep({
             <p style={{ fontSize: "11px", fontWeight: 700, color: COLORS.inkMuted }}>
               ● 자동 계산됨 — 직접 계산 안 하셔도 돼요
             </p>
-            <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "10px" }}>보호종료 예정까지</p>
-            <p style={{ fontSize: "22px", fontWeight: 800, color: COLORS.ink, marginTop: "2px" }}>
-              {formatDuration(remainingToEnd)}
-            </p>
+            <div style={{ display: "flex", gap: "16px", marginTop: "10px" }}>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: "12px", color: COLORS.inkMuted }}>보호종료 예정까지</p>
+                <p style={{ fontSize: "22px", fontWeight: 800, color: COLORS.ink, marginTop: "2px" }}>
+                  {formatDuration(remainingToEnd)}
+                </p>
+              </div>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: "12px", color: COLORS.inkMuted }}>5년 기한까지 (예정 기준)</p>
+                <p style={{ fontSize: "22px", fontWeight: 800, color: COLORS.ink, marginTop: "2px" }}>
+                  {formatDuration(remainingTo5y)}
+                </p>
+              </div>
+            </div>
             <p style={{ fontSize: "11px", color: COLORS.inkMuted, marginTop: "8px" }}>
-              5년 기한은 실제로 보호가 끝난 뒤부터 계산돼요.
+              실제 종료일이 확정되면 이 숫자는 바뀔 수 있어요 — 지금은 예정일 기준 계산이에요.
             </p>
           </div>
         )}
@@ -931,72 +943,28 @@ function tabButtonStyle(active: boolean) {
   } as const;
 }
 
-// "매칭 결과"(자격 판정) 말고, DB에 동기화된 공고 전체를 조건 없이 훑어보는 탭.
-// 지역/재학/관심분야는 명시적 필터라서 자격 판정(realMatch.ts)과 달리 "안 맞으면 숨김"이지
-// "그래서 못 받는다"는 판정이 아니다 — 그냥 찾아보기 편하라고 거르는 것뿐.
-function AnnouncementBrowser({
+// "매칭 결과"(자격 판정) 말고, DB에 동기화된 공고를 조건 판정 없이 훑어보는 탭들이 공통으로 쓰는
+// 카드 목록. 지역/현재상태/관심분야는 명시적 필터라서 자격 판정(realMatch.ts)과 달리
+// "안 맞으면 숨김"이지 "그래서 못 받는다"는 판정이 아니다 — 그냥 찾아보기 편하라고 거르는 것뿐.
+function AnnouncementListView({
   items,
-  profile,
   bookmarkedKeys,
   onToggleBookmark,
 }: {
   items: AnnouncementRecord[];
-  profile: OnboardingProfile;
   bookmarkedKeys?: Set<string>;
   onToggleBookmark?: (source: string, sourceId: string) => void;
 }) {
-  const [myRegionOnly, setMyRegionOnly] = useState(false);
-  const [enrolledOnly, setEnrolledOnly] = useState(false);
-  const [interestFilter, setInterestFilter] = useState<Set<InterestCategory>>(new Set());
   const isBookmarked = (source: string, sourceId: string) => bookmarkedKeys?.has(`${source}:${sourceId}`) ?? false;
-
-  const toggleInterest = (category: InterestCategory) => {
-    setInterestFilter((prev) => {
-      const next = new Set(prev);
-      if (next.has(category)) next.delete(category);
-      else next.add(category);
-      return next;
-    });
-  };
-
-  const filtered = items.filter((item) => {
-    if (myRegionOnly && profile.region && item.regionScope && item.regionScope !== profile.region) return false;
-    if (enrolledOnly && !item.requiresEnrolled) return false;
-    if (interestFilter.size > 0 && !item.interestCategories.some((c) => interestFilter.has(c as InterestCategory))) {
-      return false;
-    }
-    return true;
-  });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-        <button onClick={() => setMyRegionOnly((v) => !v)} style={tabButtonStyle(myRegionOnly)}>
-          📍 내 지역만
-        </button>
-        <button onClick={() => setEnrolledOnly((v) => !v)} style={tabButtonStyle(enrolledOnly)}>
-          🎓 재학생 전용만
-        </button>
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-        {(Object.keys(INTEREST_CATEGORY_LABEL) as InterestCategory[]).map((category) => (
-          <button
-            key={category}
-            onClick={() => toggleInterest(category)}
-            style={{ ...tabButtonStyle(interestFilter.has(category)), padding: "6px 12px", fontSize: "12px" }}
-          >
-            {INTEREST_CATEGORY_LABEL[category]}
-          </button>
-        ))}
-      </div>
-
-      <p style={{ fontSize: "12px", color: COLORS.inkMuted }}>{filtered.length}건</p>
-
+      <p style={{ fontSize: "12px", color: COLORS.inkMuted }}>{items.length}건</p>
       <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-        {filtered.length === 0 && (
+        {items.length === 0 && (
           <p style={{ fontSize: "13px", color: COLORS.onDarkMuted }}>조건에 맞는 공고가 없어요.</p>
         )}
-        {filtered.map((item, i) => (
+        {items.map((item, i) => (
           <section key={`${item.source}-${item.servId}-${i}`} style={{ ...CARD_STYLE, padding: "22px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <span style={pillBadge("violet")}>{SOURCE_LABEL[item.source]}</span>
@@ -1035,6 +1003,95 @@ function AnnouncementBrowser({
   );
 }
 
+type BrowseMode = "all" | "region" | "status" | "interest";
+
+function AnnouncementBrowser({
+  mode,
+  items,
+  profile,
+  bookmarkedKeys,
+  onToggleBookmark,
+}: {
+  mode: BrowseMode;
+  items: AnnouncementRecord[];
+  profile: OnboardingProfile;
+  bookmarkedKeys?: Set<string>;
+  onToggleBookmark?: (source: string, sourceId: string) => void;
+}) {
+  const [region, setRegion] = useState<string>(profile.region || REGIONS[0]);
+  const [status, setStatus] = useState<CurrentStatus>(profile.currentStatus ?? "UNIV");
+  const [interestFilter, setInterestFilter] = useState<Set<InterestCategory>>(
+    () => new Set(profile.interestCategories)
+  );
+
+  const toggleInterest = (category: InterestCategory) => {
+    setInterestFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  };
+
+  const filtered = items.filter((item) => {
+    if (mode === "region" && item.regionScope && item.regionScope !== region) return false;
+    if (mode === "status") {
+      const needsEnrolled = status === "UNIV" || status === "GRAD";
+      if (item.requiresEnrolled !== needsEnrolled) return false;
+    }
+    if (mode === "interest" && interestFilter.size > 0) {
+      if (!item.interestCategories.some((c) => interestFilter.has(c as InterestCategory))) return false;
+    }
+    return true;
+  });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+      {mode === "region" && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+          {REGIONS.map((r) => (
+            <button key={r} onClick={() => setRegion(r)} style={tabButtonStyle(region === r)}>
+              {r}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {mode === "status" && (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+            {(Object.keys(CURRENT_STATUS_LABEL) as CurrentStatus[]).map((s) => (
+              <button key={s} onClick={() => setStatus(s)} style={tabButtonStyle(status === s)}>
+                {CURRENT_STATUS_LABEL[s]}
+              </button>
+            ))}
+          </div>
+          <p style={{ fontSize: "11px", color: COLORS.inkMuted }}>
+            ⚠️ 공고 원문에 "재학·등록금·학자금" 언급이 있는지만 구분할 수 있어서, 취업/미취업/기타를
+            고르면 재학 요건이 없는 공고가 똑같이 보여요. 재학 관련 공고를 찾을 때 특히 유용해요.
+          </p>
+        </>
+      )}
+
+      {mode === "interest" && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+          {(Object.keys(INTEREST_CATEGORY_LABEL) as InterestCategory[]).map((category) => (
+            <button
+              key={category}
+              onClick={() => toggleInterest(category)}
+              style={tabButtonStyle(interestFilter.has(category))}
+            >
+              {INTEREST_CATEGORY_LABEL[category]}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <AnnouncementListView items={filtered} bookmarkedKeys={bookmarkedKeys} onToggleBookmark={onToggleBookmark} />
+    </div>
+  );
+}
+
 export function EligibilityResultScreen({
   profile,
   todayIso,
@@ -1065,7 +1122,7 @@ export function EligibilityResultScreen({
     [items, profile, todayIso]
   );
   const [showBookmarkedOnly, setShowBookmarkedOnly] = useState(false);
-  const [viewTab, setViewTab] = useState<"matched" | "all">("matched");
+  const [viewTab, setViewTab] = useState<"matched" | BrowseMode>("matched");
   const isBookmarked = (source: string, sourceId: string) => bookmarkedKeys?.has(`${source}:${sourceId}`) ?? false;
 
   if (loading || !summary) {
@@ -1116,6 +1173,15 @@ export function EligibilityResultScreen({
         <button onClick={() => setViewTab("all")} style={tabButtonStyle(viewTab === "all")}>
           전체 공고 보기
         </button>
+        <button onClick={() => setViewTab("region")} style={tabButtonStyle(viewTab === "region")}>
+          지역별 보기
+        </button>
+        <button onClick={() => setViewTab("status")} style={tabButtonStyle(viewTab === "status")}>
+          현재상태별 보기
+        </button>
+        <button onClick={() => setViewTab("interest")} style={tabButtonStyle(viewTab === "interest")}>
+          관심분야로 보기
+        </button>
         {viewTab === "matched" && onToggleBookmark && (
           <button
             onClick={() => setShowBookmarkedOnly((prev) => !prev)}
@@ -1134,8 +1200,9 @@ export function EligibilityResultScreen({
         )}
       </div>
 
-      {viewTab === "all" && (
+      {viewTab !== "matched" && (
         <AnnouncementBrowser
+          mode={viewTab}
           items={items ?? []}
           profile={profile}
           bookmarkedKeys={bookmarkedKeys}
