@@ -27,6 +27,12 @@ function emptyBucket(): SourceBucket {
 }
 
 export async function GET() {
+  // 실제 서비스 로직과 무관한 API 테스트용 라우트라 배포 환경에서는 막아둔다 (관리자/개발자만
+  // 로컬에서 확인하는 용도).
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const apiKey = process.env.WELFARE_API_KEY;
   if (!apiKey) {
     return NextResponse.json(

@@ -264,7 +264,7 @@ export default function Home() {
           />
         )}
 
-        {screen === "apiPreview" && (
+        {screen === "apiPreview" && process.env.NODE_ENV !== "production" && (
           <ApiPreviewScreen
             filteredItems={apiFilteredItems}
             youthItems={apiYouthItems}
@@ -477,18 +477,20 @@ function Landing({
         💬 커뮤니티
       </Link>
 
-      <button
-        onClick={onApiPreview}
-        style={{
-          background: "none",
-          border: "none",
-          fontSize: "13px",
-          fontWeight: 700,
-          color: COLORS.onDarkMuted,
-          textDecoration: "underline",
-        }}>
-        🔎 실시간 공공데이터 API 결과 보기
-      </button>
+      {process.env.NODE_ENV !== "production" && (
+        <button
+          onClick={onApiPreview}
+          style={{
+            background: "none",
+            border: "none",
+            fontSize: "13px",
+            fontWeight: 700,
+            color: COLORS.onDarkMuted,
+            textDecoration: "underline",
+          }}>
+          🔎 실시간 공공데이터 API 결과 보기 (관리자용)
+        </button>
+      )}
     </div>
   );
 }
