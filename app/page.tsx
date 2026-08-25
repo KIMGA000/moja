@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   API_SAMPLE_ITEMS,
   SOURCE_LABEL,
+  type AnnouncementRecord,
   type WelfareItem,
   type WelfareSource,
 } from "./data/apiPreview";
@@ -15,7 +16,7 @@ import {
 } from "./components/EligibilityFlow";
 import { AuthBar } from "./components/AuthBar";
 import { getNickname, useAuthSession } from "./hooks/useAuthSession";
-import { addBookmark, bookmarkKey, listBookmarkKeys, removeBookmark } from "../lib/bookmarks";
+import { addBookmark, bookmarkKey, listBookmarkKeys, logAnnouncementClick, removeBookmark } from "../lib/bookmarks";
 import { supabase } from "../lib/supabase";
 import {
   CARD_STYLE,
@@ -58,7 +59,7 @@ export default function Home() {
 
   const [eligProfile, setEligProfile] =
     useState<OnboardingProfile>(EMPTY_PROFILE);
-  const [eligItems, setEligItems] = useState<WelfareItem[] | null>(null);
+  const [eligItems, setEligItems] = useState<AnnouncementRecord[] | null>(null);
   const [eligLoading, setEligLoading] = useState(false);
   const [eligError, setEligError] = useState<string | null>(null);
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -166,11 +167,18 @@ export default function Home() {
         const data = await res.json();
         if (!res.ok)
           throw new Error(data.error ?? "공고 데이터를 불러오지 못했어요.");
-        setEligItems(data.items as WelfareItem[]);
+        setEligItems(data.items as AnnouncementRecord[]);
       })
       .catch((err: Error) => {
         setEligError(err.message);
-        setEligItems(API_SAMPLE_ITEMS);
+        setEligItems(
+          API_SAMPLE_ITEMS.map((item) => ({
+            ...item,
+            regionScope: null,
+            requiresEnrolled: false,
+            interestCategories: [],
+          }))
+        );
       })
       .finally(() => setEligLoading(false));
   };
@@ -263,6 +271,8 @@ export default function Home() {
               setApiSelectedSource((prev) => (prev === source ? null : source))
             }
             onBack={() => setScreen("landing")}
+            bookmarkedKeys={bookmarkedKeys}
+            onToggleBookmark={session ? toggleBookmark : undefined}
           />
         )}
 
@@ -487,6 +497,8 @@ function ApiPreviewScreen({
   selectedSource,
   onSelectSource,
   onBack,
+  bookmarkedKeys,
+  onToggleBookmark,
 }: {
   filteredItems: WelfareItem[] | null;
   youthItems: WelfareItem[] | null;
@@ -508,6 +520,8 @@ function ApiPreviewScreen({
   selectedSource: WelfareSource | null;
   onSelectSource: (source: WelfareSource) => void;
   onBack: () => void;
+  bookmarkedKeys: Set<string>;
+  onToggleBookmark?: (source: string, sourceId: string) => void;
 }) {
   const baseItems =
     viewMode === "all"
@@ -678,6 +692,8 @@ function ApiPreviewScreen({
           <ApiResultCard
             key={`${item.source}-${item.servId}-${index}`}
             item={item}
+            bookmarked={onToggleBookmark ? bookmarkedKeys.has(bookmarkKey(item.source, item.servId)) : undefined}
+            onToggleBookmark={onToggleBookmark ? () => onToggleBookmark(item.source, item.servId) : undefined}
           />
         ))}
       </div>
@@ -703,12 +719,31 @@ const SOURCE_BADGE_COLOR: Record<
   youthCenter: { background: "#fdf2f8", color: "#a21caf" },
 };
 
-function ApiResultCard({ item }: { item: WelfareItem }) {
+function ApiResultCard({
+  item,
+  bookmarked,
+  onToggleBookmark,
+}: {
+  item: WelfareItem;
+  bookmarked?: boolean;
+  onToggleBookmark?: () => void;
+}) {
   return (
     <section style={CARD_STYLE}>
-      <span style={{ ...badgeStyle, ...SOURCE_BADGE_COLOR[item.source] }}>
-        {SOURCE_LABEL[item.source]}
-      </span>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <span style={{ ...badgeStyle, ...SOURCE_BADGE_COLOR[item.source] }}>
+          {SOURCE_LABEL[item.source]}
+        </span>
+        {onToggleBookmark && (
+          <button
+            onClick={onToggleBookmark}
+            aria-label="관심공고 등록"
+            style={{ background: "none", border: "none", fontSize: "20px", lineHeight: 1, color: COLORS.ink, padding: 0 }}
+          >
+            {bookmarked ? "⭐" : "☆"}
+          </button>
+        )}
+      </div>
 
       <div style={{ marginTop: "10px" }}>
         <p style={{ fontSize: "16px", fontWeight: 800, color: COLORS.ink }}>
@@ -788,6 +823,7 @@ function ApiResultCard({ item }: { item: WelfareItem }) {
         href={item.link}
         target="_blank"
         rel="noreferrer"
+        onClick={() => logAnnouncementClick(item.source, item.servId)}
         style={{
           display: "inline-block",
           marginTop: "14px",

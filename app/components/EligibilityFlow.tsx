@@ -16,7 +16,7 @@ import {
   type YesNoUnknown,
 } from "../data/eligibility";
 import { matchRealItems, type EvaluatedRealItem } from "../data/realMatch";
-import { SOURCE_LABEL, type WelfareItem } from "../data/apiPreview";
+import { SOURCE_LABEL, type AnnouncementRecord, type WelfareItem } from "../data/apiPreview";
 import { logAnnouncementClick } from "../../lib/bookmarks";
 import {
   CARD_STYLE,
@@ -919,6 +919,122 @@ function PersonalProfileCard({
   );
 }
 
+function tabButtonStyle(active: boolean) {
+  return {
+    padding: "10px 16px",
+    borderRadius: "999px",
+    border: `1.5px solid ${active ? COLORS.ink : COLORS.cardBorder}`,
+    background: active ? COLORS.ink : "#ffffff",
+    color: active ? "#ffffff" : COLORS.inkMuted,
+    fontSize: "13px",
+    fontWeight: 700,
+  } as const;
+}
+
+// "매칭 결과"(자격 판정) 말고, DB에 동기화된 공고 전체를 조건 없이 훑어보는 탭.
+// 지역/재학/관심분야는 명시적 필터라서 자격 판정(realMatch.ts)과 달리 "안 맞으면 숨김"이지
+// "그래서 못 받는다"는 판정이 아니다 — 그냥 찾아보기 편하라고 거르는 것뿐.
+function AnnouncementBrowser({
+  items,
+  profile,
+  bookmarkedKeys,
+  onToggleBookmark,
+}: {
+  items: AnnouncementRecord[];
+  profile: OnboardingProfile;
+  bookmarkedKeys?: Set<string>;
+  onToggleBookmark?: (source: string, sourceId: string) => void;
+}) {
+  const [myRegionOnly, setMyRegionOnly] = useState(false);
+  const [enrolledOnly, setEnrolledOnly] = useState(false);
+  const [interestFilter, setInterestFilter] = useState<Set<InterestCategory>>(new Set());
+  const isBookmarked = (source: string, sourceId: string) => bookmarkedKeys?.has(`${source}:${sourceId}`) ?? false;
+
+  const toggleInterest = (category: InterestCategory) => {
+    setInterestFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  };
+
+  const filtered = items.filter((item) => {
+    if (myRegionOnly && profile.region && item.regionScope && item.regionScope !== profile.region) return false;
+    if (enrolledOnly && !item.requiresEnrolled) return false;
+    if (interestFilter.size > 0 && !item.interestCategories.some((c) => interestFilter.has(c as InterestCategory))) {
+      return false;
+    }
+    return true;
+  });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+        <button onClick={() => setMyRegionOnly((v) => !v)} style={tabButtonStyle(myRegionOnly)}>
+          📍 내 지역만
+        </button>
+        <button onClick={() => setEnrolledOnly((v) => !v)} style={tabButtonStyle(enrolledOnly)}>
+          🎓 재학생 전용만
+        </button>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+        {(Object.keys(INTEREST_CATEGORY_LABEL) as InterestCategory[]).map((category) => (
+          <button
+            key={category}
+            onClick={() => toggleInterest(category)}
+            style={{ ...tabButtonStyle(interestFilter.has(category)), padding: "6px 12px", fontSize: "12px" }}
+          >
+            {INTEREST_CATEGORY_LABEL[category]}
+          </button>
+        ))}
+      </div>
+
+      <p style={{ fontSize: "12px", color: COLORS.inkMuted }}>{filtered.length}건</p>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        {filtered.length === 0 && (
+          <p style={{ fontSize: "13px", color: COLORS.onDarkMuted }}>조건에 맞는 공고가 없어요.</p>
+        )}
+        {filtered.map((item, i) => (
+          <section key={`${item.source}-${item.servId}-${i}`} style={{ ...CARD_STYLE, padding: "22px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <span style={pillBadge("violet")}>{SOURCE_LABEL[item.source]}</span>
+              {onToggleBookmark && (
+                <button
+                  onClick={() => onToggleBookmark(item.source, item.servId)}
+                  aria-label="관심공고 등록"
+                  style={{ background: "none", border: "none", fontSize: "20px", lineHeight: 1, color: COLORS.ink, padding: 0 }}
+                >
+                  {isBookmarked(item.source, item.servId) ? "⭐" : "☆"}
+                </button>
+              )}
+            </div>
+            <div style={{ marginTop: "10px" }}>
+              <p style={{ fontSize: "16px", fontWeight: 800, color: COLORS.ink }}>{item.servNm}</p>
+              <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "2px" }}>
+                {item.org}
+                {item.region && ` · ${item.region}`}
+              </p>
+            </div>
+            <p style={{ fontSize: "13px", color: "#3f3f46", marginTop: "10px", lineHeight: 1.6 }}>{item.servDgst}</p>
+            {item.deadline && <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>⏰ {item.deadline}</p>}
+            <a
+              href={item.link}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => logAnnouncementClick(item.source, item.servId)}
+              style={{ display: "inline-block", marginTop: "12px", fontSize: "13px", fontWeight: 700, color: COLORS.accentViolet, textDecoration: "none" }}
+            >
+              공식 안내 페이지 바로가기 →
+            </a>
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function EligibilityResultScreen({
   profile,
   todayIso,
@@ -934,7 +1050,7 @@ export function EligibilityResultScreen({
 }: {
   profile: OnboardingProfile;
   todayIso: string;
-  items: WelfareItem[] | null;
+  items: AnnouncementRecord[] | null;
   loading: boolean;
   error: string | null;
   nickname?: string | null;
@@ -949,6 +1065,7 @@ export function EligibilityResultScreen({
     [items, profile, todayIso]
   );
   const [showBookmarkedOnly, setShowBookmarkedOnly] = useState(false);
+  const [viewTab, setViewTab] = useState<"matched" | "all">("matched");
   const isBookmarked = (source: string, sourceId: string) => bookmarkedKeys?.has(`${source}:${sourceId}`) ?? false;
 
   if (loading || !summary) {
@@ -992,24 +1109,42 @@ export function EligibilityResultScreen({
         </p>
       </section>
 
-      {onToggleBookmark && (
-        <button
-          onClick={() => setShowBookmarkedOnly((prev) => !prev)}
-          style={{
-            alignSelf: "flex-start",
-            padding: "8px 14px",
-            borderRadius: "999px",
-            border: `1.5px solid ${showBookmarkedOnly ? COLORS.ink : COLORS.cardBorder}`,
-            background: showBookmarkedOnly ? COLORS.ink : "#ffffff",
-            color: showBookmarkedOnly ? "#ffffff" : COLORS.inkMuted,
-            fontSize: "12px",
-            fontWeight: 700,
-          }}
-        >
-          {showBookmarkedOnly ? "⭐" : "☆"} 관심공고만 보기
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
+        <button onClick={() => setViewTab("matched")} style={tabButtonStyle(viewTab === "matched")}>
+          매칭 결과
         </button>
+        <button onClick={() => setViewTab("all")} style={tabButtonStyle(viewTab === "all")}>
+          전체 공고 보기
+        </button>
+        {viewTab === "matched" && onToggleBookmark && (
+          <button
+            onClick={() => setShowBookmarkedOnly((prev) => !prev)}
+            style={{
+              padding: "8px 14px",
+              borderRadius: "999px",
+              border: `1.5px solid ${showBookmarkedOnly ? COLORS.ink : COLORS.cardBorder}`,
+              background: showBookmarkedOnly ? COLORS.ink : "#ffffff",
+              color: showBookmarkedOnly ? "#ffffff" : COLORS.inkMuted,
+              fontSize: "12px",
+              fontWeight: 700,
+            }}
+          >
+            {showBookmarkedOnly ? "⭐" : "☆"} 관심공고만 보기
+          </button>
+        )}
+      </div>
+
+      {viewTab === "all" && (
+        <AnnouncementBrowser
+          items={items ?? []}
+          profile={profile}
+          bookmarkedKeys={bookmarkedKeys}
+          onToggleBookmark={onToggleBookmark}
+        />
       )}
 
+      {viewTab === "matched" && (
+        <>
       <section>
         <h3 style={{ fontSize: "14px", fontWeight: 800, color: COLORS.success, marginBottom: "12px" }}>
           가능성 높은 지원 ({summary.eligible.length})
@@ -1082,6 +1217,8 @@ export function EligibilityResultScreen({
             ))}
           </div>
         </section>
+      )}
+        </>
       )}
 
       {!hideFooterActions && (
