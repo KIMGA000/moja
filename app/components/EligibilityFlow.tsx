@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CURRENT_STATUS_LABEL,
   INTEREST_CATEGORY_LABEL,
@@ -539,11 +539,23 @@ function EndDateStep({
   todayIso: string;
   onChange: (patch: Partial<OnboardingProfile>) => void;
 }) {
+  // "만 18세에 종료"는 법적으로 생년월일 + 18년으로 정확히 정해지는 날짜라 물어볼 필요가 없다
+  // (아동복지법 제38조) — 직접 계산해서 채워준다.
+  const isAge18End = profile.protectionEndType === "AGE18_END";
+  const computedAge18Date = isAge18End && profile.birthDate ? addYearsIso(profile.birthDate, 18) : null;
+
   // BirthDateStep과 같은 이유로 로컬 state로 선택 상태를 따로 든다 (연도만 고른 시점에
   // profile.protectionEndDate가 아직 ""라서 화면이 다시 placeholder로 되돌아가는 것 방지).
   const initial = parseYearMonth(profile.protectionEndDate);
   const [year, setYear] = useState(initial.year);
   const [month, setMonth] = useState(initial.month);
+
+  useEffect(() => {
+    if (computedAge18Date && profile.protectionEndDate !== computedAge18Date) {
+      onChange({ protectionEndDate: computedAge18Date });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [computedAge18Date]);
 
   const currentYear = Number(todayIso.slice(0, 4));
   // 과거(이미 종료) ~ 미래(만 18세 도달 예정) 양쪽을 넉넉히 포괄
@@ -565,8 +577,9 @@ function EndDateStep({
   // 실제 종료일이 나중에 바뀌면 이 값도 같이 바뀐다는 걸 문구로 알려준다.
   const remainingTo5y = profile.protectionEndDate && dday5y ? monthsBetween(todayIso, dday5y) : null;
 
-  const title =
-    profile.protectionEndType === "CURRENTLY_PROTECTED"
+  const title = isAge18End
+    ? "만 18세가 되는 시점을 자동 계산했어요"
+    : profile.protectionEndType === "CURRENTLY_PROTECTED"
       ? "보호종료 예정일이 언제인가요?"
       : "보호가 끝난 때가 언제인가요?";
 
@@ -576,26 +589,49 @@ function EndDateStep({
         category={STEP_CATEGORY.endDate}
         badge="violet"
         title={title}
-        desc="연도와 월만 고르면 돼요. 정확한 날짜는 몰라도 괜찮아요."
+        desc={
+          isAge18End
+            ? "만 18세 도달일은 법으로 정해져 있어서(아동복지법 제38조), 생년월일로 직접 계산했어요."
+            : "연도와 월만 고르면 돼요. 정확한 날짜는 몰라도 괜찮아요."
+        }
       >
-        <div style={{ display: "flex", gap: "12px" }}>
-          <select value={year} onChange={(e) => setPart("year", e.target.value)} style={{ ...inputStyle, flex: 1 }}>
-            <option value="">연도</option>
-            {years.map((y) => (
-              <option key={y} value={y}>
-                {y}년
-              </option>
-            ))}
-          </select>
-          <select value={month} onChange={(e) => setPart("month", e.target.value)} style={{ ...inputStyle, flex: 1 }}>
-            <option value="">월</option>
-            {months.map((m) => (
-              <option key={m} value={m}>
-                {Number(m)}월
-              </option>
-            ))}
-          </select>
-        </div>
+        {isAge18End ? (
+          <div
+            style={{
+              border: `1px solid ${COLORS.cardBorder}`,
+              borderRadius: "16px",
+              padding: "16px",
+              background: "#fafafa",
+              textAlign: "center",
+            }}
+          >
+            <p style={{ fontSize: "11px", fontWeight: 700, color: COLORS.inkMuted }}>
+              ● 자동 계산됨 — 생년월일 기준
+            </p>
+            <p style={{ fontSize: "22px", fontWeight: 800, color: COLORS.ink, marginTop: "8px" }}>
+              {computedAge18Date ? `${computedAge18Date.slice(0, 4)}년 ${Number(computedAge18Date.slice(5, 7))}월` : "－"}
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: "12px" }}>
+            <select value={year} onChange={(e) => setPart("year", e.target.value)} style={{ ...inputStyle, flex: 1 }}>
+              <option value="">연도</option>
+              {years.map((y) => (
+                <option key={y} value={y}>
+                  {y}년
+                </option>
+              ))}
+            </select>
+            <select value={month} onChange={(e) => setPart("month", e.target.value)} style={{ ...inputStyle, flex: 1 }}>
+              <option value="">월</option>
+              {months.map((m) => (
+                <option key={m} value={m}>
+                  {Number(m)}월
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {profile.protectionEndDate && isFuture && (
           <div
@@ -943,6 +979,31 @@ function tabButtonStyle(active: boolean) {
   } as const;
 }
 
+// 공고 설명 원문이 법조문투 긴 문단이라 한눈에 읽기 어려워서, classify.ts가 미리 찾아둔
+// 핵심 키워드를 #태그로 붙여 빠르게 훑어볼 수 있게 한다 (원문 문단은 그대로 두고 보조용으로만).
+function DescriptionTags({ tags }: { tags: string[] }) {
+  if (tags.length === 0) return null;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "8px" }}>
+      {tags.map((tag) => (
+        <span
+          key={tag}
+          style={{
+            fontSize: "11px",
+            fontWeight: 700,
+            padding: "3px 9px",
+            borderRadius: "999px",
+            background: COLORS.neutralBg,
+            color: COLORS.neutral,
+          }}
+        >
+          #{tag}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // "매칭 결과"(자격 판정) 말고, DB에 동기화된 공고를 조건 판정 없이 훑어보는 탭들이 공통으로 쓰는
 // 카드 목록. 지역/현재상태/관심분야는 명시적 필터라서 자격 판정(realMatch.ts)과 달리
 // "안 맞으면 숨김"이지 "그래서 못 받는다"는 판정이 아니다 — 그냥 찾아보기 편하라고 거르는 것뿐.
@@ -986,6 +1047,7 @@ function AnnouncementListView({
               </p>
             </div>
             <p style={{ fontSize: "13px", color: "#3f3f46", marginTop: "10px", lineHeight: 1.6 }}>{item.servDgst}</p>
+            <DescriptionTags tags={item.descriptionTags} />
             {item.deadline && <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>⏰ {item.deadline}</p>}
             <a
               href={item.link}
@@ -1325,7 +1387,7 @@ function RealItemCard({
   bookmarked,
   onToggleBookmark,
 }: {
-  item: EvaluatedRealItem;
+  item: EvaluatedRealItem<AnnouncementRecord>;
   tone: "eligible" | "uncertain";
   bookmarked?: boolean;
   onToggleBookmark?: () => void;
@@ -1359,6 +1421,7 @@ function RealItemCard({
       </div>
 
       <p style={{ fontSize: "13px", color: "#3f3f46", marginTop: "10px", lineHeight: 1.6 }}>{item.servDgst}</p>
+      <DescriptionTags tags={item.descriptionTags} />
 
       {item.deadline && <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>⏰ {item.deadline}</p>}
 

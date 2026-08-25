@@ -54,6 +54,7 @@ function toRow(item: WelfareItem) {
     region_scope: c.regionScope,
     interest_categories: c.interestCategories,
     protection_end_types_applicable: c.protectionEndTypesApplicable,
+    description_tags: c.descriptionTags,
     fetched_at: new Date().toISOString(),
     // review_status·duplicate_of_*·reviewed_by 등은 일부러 안 넣는다 —
     // upsert 시 이 컬럼들은 건드리지 않아야 사람이 검수해둔 상태가 재동기화 때마다 초기화되지 않는다.

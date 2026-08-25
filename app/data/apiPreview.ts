@@ -57,6 +57,7 @@ export type AnnouncementRecord = WelfareItem & {
   regionScope: string | null;
   requiresEnrolled: boolean;
   interestCategories: string[];
+  descriptionTags: string[];
 };
 
 export const API_SAMPLE_ITEMS: WelfareItem[] = [

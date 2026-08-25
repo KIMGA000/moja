@@ -16,7 +16,14 @@ import {
 } from "./components/EligibilityFlow";
 import { AuthBar } from "./components/AuthBar";
 import { getNickname, useAuthSession } from "./hooks/useAuthSession";
-import { addBookmark, bookmarkKey, listBookmarkKeys, logAnnouncementClick, removeBookmark } from "../lib/bookmarks";
+import {
+  addBookmark,
+  bookmarkKey,
+  calcAgeFromBirthDate,
+  listBookmarkKeys,
+  logAnnouncementClick,
+  removeBookmark,
+} from "../lib/bookmarks";
 import { supabase } from "../lib/supabase";
 import {
   CARD_STYLE,
@@ -110,7 +117,8 @@ export default function Home() {
       else next.add(key);
       return next;
     });
-    (wasBookmarked ? removeBookmark(source, sourceId) : addBookmark(source, sourceId)).catch(() => {
+    const age = calcAgeFromBirthDate(eligProfile.birthDate, todayIso);
+    (wasBookmarked ? removeBookmark(source, sourceId) : addBookmark(source, sourceId, age)).catch(() => {
       // 실패하면 낙관적 업데이트를 되돌린다.
       setBookmarkedKeys((prev) => {
         const next = new Set(prev);
@@ -177,6 +185,7 @@ export default function Home() {
             regionScope: null,
             requiresEnrolled: false,
             interestCategories: [],
+            descriptionTags: [],
           }))
         );
       })

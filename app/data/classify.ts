@@ -18,6 +18,7 @@ export type AnnouncementClassification = {
   regionScope: string | null; // 특정 시·도가 언급되면 그 이름, 전국 단위면 null
   interestCategories: InterestCategory[];
   protectionEndTypesApplicable: ProtectionEndType[]; // 본문에서 배제 신호가 없으면 5종 전부
+  descriptionTags: string[]; // 원문(설명·지원대상)에서 찾은 핵심 키워드 — 화면에 #태그로 표시
 };
 
 const REGION_SHORT: Record<string, string> = {
@@ -103,6 +104,44 @@ function extractProtectionYearsLimit(text: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+// 공고 원문(설명·지원대상)이 법조문투 긴 문단이라 통째로 읽기 어려운 경우가 많아서, 자립준비청년
+// 맥락에서 자주 나오는 단어만 미리 정해두고 찾아서 #태그로 뽑아 보여준다. 원문 문장 자체를
+// 대체하는 게 아니라, 빠르게 훑어볼 수 있게 돕는 용도라 목록에 없는 단어는 그냥 안 뜬다.
+const DESCRIPTION_TAG_KEYWORDS = [
+  "가정위탁",
+  "시설보호",
+  "아동복지시설",
+  "공동생활가정",
+  "보호종료",
+  "조기퇴소",
+  "연장보호",
+  "자립수당",
+  "자립정착금",
+  "무주택",
+  "기초생활수급",
+  "차상위",
+  "등록금",
+  "학자금",
+  "장학금",
+  "대학생",
+  "재학",
+  "취업",
+  "미취업",
+  "심리상담",
+  "멘토링",
+  "주거",
+  "의료비",
+  "운전면허",
+];
+
+function extractDescriptionTags(text: string): string[] {
+  const found = new Set<string>();
+  for (const keyword of DESCRIPTION_TAG_KEYWORDS) {
+    if (text.includes(keyword)) found.add(keyword);
+  }
+  return [...found];
+}
+
 function extractInterestCategories(item: WelfareItem): InterestCategory[] {
   const categories = new Set<InterestCategory>();
   for (const theme of item.themes) {
@@ -127,5 +166,6 @@ export function classifyItem(item: WelfareItem): AnnouncementClassification {
     regionScope: extractRegionScope(item),
     interestCategories: extractInterestCategories(item),
     protectionEndTypesApplicable: ALL_PROTECTION_END_TYPES,
+    descriptionTags: extractDescriptionTags(text),
   };
 }

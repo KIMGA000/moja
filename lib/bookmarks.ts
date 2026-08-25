@@ -13,9 +13,25 @@ export async function listBookmarkKeys(userId: string): Promise<Set<string>> {
   return new Set((data ?? []).map((row) => bookmarkKey(row.source, row.source_id)));
 }
 
-export async function addBookmark(source: string, sourceId: string): Promise<void> {
+// 생년월일로 만 나이를 계산한다 — 정확한 생년월일이 아니라 정수 나이 하나만 bookmarks에 남기려고.
+export function calcAgeFromBirthDate(birthDate: string, todayIso: string): number | null {
+  if (!birthDate) return null;
+  const birth = new Date(birthDate);
+  const today = new Date(todayIso);
+  if (Number.isNaN(birth.getTime()) || Number.isNaN(today.getTime())) return null;
+  let age = today.getFullYear() - birth.getFullYear();
+  const hasHadBirthdayThisYear =
+    today.getMonth() > birth.getMonth() ||
+    (today.getMonth() === birth.getMonth() && today.getDate() >= birth.getDate());
+  if (!hasHadBirthdayThisYear) age -= 1;
+  return age;
+}
+
+export async function addBookmark(source: string, sourceId: string, ageAtAction?: number | null): Promise<void> {
   if (!supabase) return;
-  const { error } = await supabase.from("bookmarks").insert({ source, source_id: sourceId });
+  const { error } = await supabase
+    .from("bookmarks")
+    .insert({ source, source_id: sourceId, age_at_action: ageAtAction ?? null });
   if (error) throw new Error(error.message);
 }
 

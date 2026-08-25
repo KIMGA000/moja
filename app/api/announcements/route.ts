@@ -24,7 +24,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("announcements_all")
-    .select("raw_data, region_scope, requires_enrolled, interest_categories, fetched_at")
+    .select("raw_data, region_scope, requires_enrolled, interest_categories, description_tags, fetched_at")
     .eq("review_status", "approved")
     .gte("fetched_at", staleBefore);
 
@@ -41,6 +41,7 @@ export async function GET() {
         regionScope: (row.region_scope as string | null) ?? null,
         requiresEnrolled: Boolean(row.requires_enrolled),
         interestCategories: (row.interest_categories as string[] | null) ?? [],
+        descriptionTags: (row.description_tags as string[] | null) ?? [],
       };
     })
     .filter((item): item is AnnouncementRecord => item != null);

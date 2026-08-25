@@ -35,6 +35,7 @@ create table if not exists announcements_central (
   region_scope text,                                  -- 특정 시·도명, 전국이면 null
   interest_categories text[] not null default '{}',   -- INCOME/HOUSING/MEDICAL/EDUCATION/JOB/ASSET/MENTAL/MENTORING/ETC
   protection_end_types_applicable text[] not null default '{}', -- AGE18_END 등 5종 중 해당하는 것
+  description_tags text[] not null default '{}', -- 원문에서 찾은 핵심 키워드 (화면에 #태그로 표시)
 
   -- 검수 워크플로우
   review_status text not null default 'pending'
@@ -59,6 +60,24 @@ create table if not exists announcements_youth_center (like announcements_centra
 
 -- `like ... including all`은 identity/제약조건까지 복사하지만 시퀀스는 테이블마다 독립적으로 생성된다.
 -- (즉 각 테이블의 id는 1부터 따로 시작한다 — 소스 내에서만 고유하면 되므로 문제 없음)
+
+-- 이미 만들어져 있던 테이블에는 위 create table이 안 먹히니 따로 컬럼을 추가해준다.
+do $$
+declare
+  t text;
+begin
+  foreach t in array array[
+    'announcements_central', 'announcements_local', 'announcements_gov24',
+    'announcements_housing', 'announcements_training',
+    'announcements_jobseeker_program', 'announcements_dual_training',
+    'announcements_youth_center'
+  ]
+  loop
+    execute format(
+      'alter table %I add column if not exists description_tags text[] not null default ''{}''', t
+    );
+  end loop;
+end $$;
 
 -- =========================================================================
 -- 인덱스: 이름 유사도 검색(중복 후보 찾기) + 검수 상태 필터링
@@ -226,9 +245,14 @@ create table if not exists bookmarks (
   user_id uuid not null references auth.users(id) on delete cascade default auth.uid(),
   source text not null,
   source_id text not null,
+  -- 북마크 시점의 만 나이 스냅샷. "20대가 어떤 공고에 관심 가졌는지" 같은 연령대별 집계용이라
+  -- 정확한 생년월일이 아니라 정수 나이만 남긴다 — 집계 낼 때도 user_id는 절대 같이 노출하지 않기.
+  age_at_action int,
   created_at timestamptz not null default now(),
   unique (user_id, source, source_id)
 );
+
+alter table bookmarks add column if not exists age_at_action int;
 
 create index if not exists bookmarks_user_id_idx on bookmarks(user_id);
 
