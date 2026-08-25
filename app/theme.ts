@@ -20,6 +20,12 @@ export const COLORS = {
   accentLime: "#caff33",
   accentLimeText: "#1a2e05",
 
+  // 로고 마크(주황 스월 + 크림 배경 타일)용 브랜드 색상 — 헤더 로고에서만 씀
+  brandOrange: "#ef5a22",
+  brandOrangeMuted: "#f0916b",
+  brandCream: "#fbeee0",
+  brandPeach: "#f6bd91",
+
   success: "#16a34a",
   successBg: "#dcfce7",
   warning: "#b45309",

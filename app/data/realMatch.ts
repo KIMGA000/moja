@@ -100,8 +100,8 @@ function educationCheck(
 ): { verdict: RealVerdict; note?: string } | null {
   const eduKeywords = ["등록금", "학자금", "장학금", "대학생"];
   if (!eduKeywords.some((kw) => text.includes(kw))) return null;
-  if (profile.currentStatus === "UNIV" || profile.currentStatus === "GRAD") return null;
-  if (profile.currentStatus === null) {
+  if (profile.enrollmentStatus === "UNIV" || profile.enrollmentStatus === "GRAD") return null;
+  if (profile.enrollmentStatus === null) {
     return { verdict: "UNCERTAIN", note: "재학 여부에 따라 대상이 갈려요" };
   }
   return { verdict: "INELIGIBLE", note: "재학 중이어야 신청 가능해 보여요 (현재 미재학)" };

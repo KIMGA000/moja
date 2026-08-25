@@ -352,16 +352,20 @@ function SiteHeader({ onHome }: { onHome: () => void }) {
               width: "26px",
               height: "26px",
               borderRadius: "8px",
-              background: COLORS.accentLime,
+              background: COLORS.brandCream,
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: "14px",
+              overflow: "hidden",
             }}>
-            🧭
+            <svg width="20" height="20" viewBox="0 0 40 40">
+              <circle cx="20" cy="20" r="20" fill={COLORS.brandOrange} />
+              <circle cx="27" cy="13" r="13" fill={COLORS.brandCream} />
+              <circle cx="21" cy="17" r="8" fill={COLORS.brandPeach} />
+            </svg>
           </span>
-          모자{" "}
-          <span style={{ color: COLORS.onDarkMuted, fontWeight: 600 }}>
+          <span style={{ color: COLORS.brandOrange }}>모자</span>{" "}
+          <span style={{ color: COLORS.brandOrangeMuted, fontWeight: 600 }}>
             MOJA
           </span>
         </button>

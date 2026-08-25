@@ -17,14 +17,21 @@ export const PROTECTION_END_TYPE_LABEL: Record<ProtectionEndType, string> = {
   CURRENTLY_PROTECTED: "현재 보호 중 (퇴소 예정)",
 };
 
-export type CurrentStatus = "UNIV" | "GRAD" | "EMPLOYED" | "UNEMPLOYED" | "OTHER";
+// 예전엔 "현재 상태" 하나로 재학/취업을 한 번에 고르게 했는데, 재학 중이면서 동시에 취업한
+// 사람도 있어서(예: 대학 재학 + 알바/취업) 재학 여부와 취업 여부를 서로 독립된 질문으로 나눴다.
+export type EnrollmentStatus = "UNIV" | "GRAD" | "NONE";
 
-export const CURRENT_STATUS_LABEL: Record<CurrentStatus, string> = {
+export const ENROLLMENT_STATUS_LABEL: Record<EnrollmentStatus, string> = {
   UNIV: "대학 재학",
   GRAD: "대학원 재학",
+  NONE: "재학 중 아님",
+};
+
+export type EmploymentStatus = "EMPLOYED" | "UNEMPLOYED";
+
+export const EMPLOYMENT_STATUS_LABEL: Record<EmploymentStatus, string> = {
   EMPLOYED: "취업",
   UNEMPLOYED: "미취업",
-  OTHER: "기타",
 };
 
 export type YesNoUnknown = "Y" | "N" | "UNKNOWN";
@@ -58,7 +65,8 @@ export type OnboardingProfile = {
   protectionEndType: ProtectionEndType | null;
   returnedToBirthFamily: boolean | null; // EARLY_END일 때만 의미 있음
   protectionEndDate: string; // YYYY-MM-DD (실제 또는 예정)
-  currentStatus: CurrentStatus | null;
+  enrollmentStatus: EnrollmentStatus | null;
+  employmentStatus: EmploymentStatus | null;
   region: string; // 시·도
   ownsHome: boolean | null;
   maritalStatus: boolean | null;
@@ -74,7 +82,8 @@ export const EMPTY_PROFILE: OnboardingProfile = {
   protectionEndType: null,
   returnedToBirthFamily: null,
   protectionEndDate: "",
-  currentStatus: null,
+  enrollmentStatus: null,
+  employmentStatus: null,
   region: "",
   ownsHome: null,
   maritalStatus: null,
@@ -274,11 +283,11 @@ export const PROGRAMS: Program[] = [
     documents: "소득 확인서류, 통장 사본",
     link: "https://www.bokjiro.go.kr",
     evaluate: (profile) => {
-      if (profile.currentStatus === "UNEMPLOYED") {
+      if (profile.employmentStatus === "UNEMPLOYED") {
         return { verdict: "INELIGIBLE", reason: "근로·사업소득이 있어야 신청할 수 있어요 (현재 미취업)" };
       }
-      if (profile.currentStatus === null) {
-        return { verdict: "UNCERTAIN", reason: "현재 상태를 확인해주세요" };
+      if (profile.employmentStatus === null) {
+        return { verdict: "UNCERTAIN", reason: "취업 상태를 확인해주세요" };
       }
       return { verdict: "ELIGIBLE" };
     },
@@ -321,7 +330,7 @@ export const PROGRAMS: Program[] = [
     amount: "월 최대 약 65만원 (최대 6개월)",
     link: "https://www.work24.go.kr",
     evaluate: (profile) => {
-      if (profile.currentStatus === "EMPLOYED") {
+      if (profile.employmentStatus === "EMPLOYED") {
         return { verdict: "INELIGIBLE", reason: "이미 취업 중이라 구직지원 대상이 아니에요" };
       }
       return { verdict: "ELIGIBLE" };
@@ -336,7 +345,7 @@ export const PROGRAMS: Program[] = [
     amount: "5년간 300~500만원",
     link: "https://www.hrd.go.kr",
     evaluate: (profile) => {
-      if (profile.currentStatus === "EMPLOYED") {
+      if (profile.employmentStatus === "EMPLOYED") {
         return { verdict: "UNCERTAIN", reason: "재직자는 지원 한도·조건이 달라질 수 있어요" };
       }
       return { verdict: "ELIGIBLE" };
@@ -378,7 +387,7 @@ export const PROGRAMS: Program[] = [
     link: "https://www.kosaf.go.kr",
     conflictsWith: ["daehak_deungrok"],
     evaluate: (profile) => {
-      if (profile.currentStatus !== "UNIV" && profile.currentStatus !== "GRAD") {
+      if (profile.enrollmentStatus !== "UNIV" && profile.enrollmentStatus !== "GRAD") {
         return { verdict: "INELIGIBLE", reason: "현재 미재학 상태예요" };
       }
       return { verdict: "UNCERTAIN", reason: "소득분위 산정 결과에 따라 금액이 달라져요 · 신청 후 확인 필요" };
@@ -392,7 +401,7 @@ export const PROGRAMS: Program[] = [
     summary: "근로 기회를 제공하고 그 대가로 장학금을 지급해요.",
     link: "https://www.kosaf.go.kr",
     evaluate: (profile) => {
-      if (profile.currentStatus !== "UNIV" && profile.currentStatus !== "GRAD") {
+      if (profile.enrollmentStatus !== "UNIV" && profile.enrollmentStatus !== "GRAD") {
         return { verdict: "INELIGIBLE", reason: "현재 미재학 상태예요" };
       }
       return { verdict: "ELIGIBLE" };
@@ -438,7 +447,7 @@ export const PROGRAMS: Program[] = [
     link: "https://www.gov.kr",
     conflictsWith: ["gukga_janghakgeum"],
     evaluate: (profile) => {
-      if (profile.currentStatus !== "UNIV" && profile.currentStatus !== "GRAD") {
+      if (profile.enrollmentStatus !== "UNIV" && profile.enrollmentStatus !== "GRAD") {
         return { verdict: "INELIGIBLE", reason: "현재 미재학 상태예요" };
       }
       return { verdict: "UNCERTAIN", reason: "거주 지자체에 자립준비청년 등록금 지원 사업이 있는지 확인이 필요해요" };

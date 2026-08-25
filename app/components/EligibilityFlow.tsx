@@ -2,14 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  CURRENT_STATUS_LABEL,
+  EMPLOYMENT_STATUS_LABEL,
+  ENROLLMENT_STATUS_LABEL,
   INTEREST_CATEGORY_LABEL,
   PROGRAMS,
   PROTECTION_END_TYPE_LABEL,
   addYears,
   buildAgeInfo,
   ddayLabel,
-  type CurrentStatus,
+  type EmploymentStatus,
+  type EnrollmentStatus,
   type InterestCategory,
   type OnboardingProfile,
   type ProtectionEndType,
@@ -200,7 +202,7 @@ export function EligibilityOnboarding({
       case "endDate":
         return !!profile.protectionEndDate;
       case "status":
-        return !!profile.currentStatus;
+        return !!profile.enrollmentStatus && !!profile.employmentStatus;
       case "region":
         return !!profile.region;
       case "home":
@@ -315,15 +317,34 @@ export function EligibilityOnboarding({
       )}
 
       {stepId === "status" && (
-        <StepShell category={STEP_CATEGORY.status} badge="violet" title="현재 상태를 알려주세요">
+        <StepShell
+          category={STEP_CATEGORY.status}
+          badge="violet"
+          title="현재 상태를 알려주세요"
+          desc="재학 중이면서 취업한 경우도 있어서, 재학 여부와 취업 여부를 따로 골라주세요"
+        >
+          <p style={{ fontSize: "13px", fontWeight: 700, color: COLORS.ink, marginBottom: "10px" }}>재학 여부</p>
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {(Object.keys(CURRENT_STATUS_LABEL) as CurrentStatus[]).map((s) => (
+            {(Object.keys(ENROLLMENT_STATUS_LABEL) as EnrollmentStatus[]).map((s) => (
               <button
                 key={s}
-                onClick={() => update({ currentStatus: s })}
-                style={choiceButtonStyle(profile.currentStatus === s)}
+                onClick={() => update({ enrollmentStatus: s })}
+                style={choiceButtonStyle(profile.enrollmentStatus === s)}
               >
-                {CURRENT_STATUS_LABEL[s]}
+                {ENROLLMENT_STATUS_LABEL[s]}
+              </button>
+            ))}
+          </div>
+
+          <p style={{ fontSize: "13px", fontWeight: 700, color: COLORS.ink, margin: "22px 0 10px" }}>취업 상태</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            {(Object.keys(EMPLOYMENT_STATUS_LABEL) as EmploymentStatus[]).map((s) => (
+              <button
+                key={s}
+                onClick={() => update({ employmentStatus: s })}
+                style={choiceButtonStyle(profile.employmentStatus === s)}
+              >
+                {EMPLOYMENT_STATUS_LABEL[s]}
               </button>
             ))}
           </div>
@@ -954,8 +975,11 @@ function PersonalProfileCard({
 }) {
   const rows: { icon: string; label: string; value: string }[] = [];
   if (profile.region) rows.push({ icon: "📍", label: "지역", value: profile.region });
-  if (profile.currentStatus) {
-    rows.push({ icon: "💼", label: "현재 상태", value: CURRENT_STATUS_LABEL[profile.currentStatus] });
+  if (profile.enrollmentStatus) {
+    rows.push({ icon: "🎓", label: "재학 여부", value: ENROLLMENT_STATUS_LABEL[profile.enrollmentStatus] });
+  }
+  if (profile.employmentStatus) {
+    rows.push({ icon: "💼", label: "취업 상태", value: EMPLOYMENT_STATUS_LABEL[profile.employmentStatus] });
   }
   if (profile.interestCategories.length > 0) {
     rows.push({
@@ -1143,7 +1167,7 @@ function AnnouncementBrowser({
   onToggleBookmark?: (source: string, sourceId: string) => void;
 }) {
   const [region, setRegion] = useState<string>(profile.region || REGIONS[0]);
-  const [status, setStatus] = useState<CurrentStatus>(profile.currentStatus ?? "UNIV");
+  const [status, setStatus] = useState<EnrollmentStatus>(profile.enrollmentStatus ?? "UNIV");
   const [interestFilter, setInterestFilter] = useState<Set<InterestCategory>>(
     () => new Set(profile.interestCategories)
   );
@@ -1190,15 +1214,15 @@ function AnnouncementBrowser({
       {mode === "status" && (
         <>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-            {(Object.keys(CURRENT_STATUS_LABEL) as CurrentStatus[]).map((s) => (
+            {(Object.keys(ENROLLMENT_STATUS_LABEL) as EnrollmentStatus[]).map((s) => (
               <button key={s} onClick={() => setStatus(s)} style={subTabButtonStyle(status === s)}>
-                {CURRENT_STATUS_LABEL[s]}
+                {ENROLLMENT_STATUS_LABEL[s]}
               </button>
             ))}
           </div>
           <p style={{ fontSize: "11px", color: COLORS.inkMuted }}>
-            ⚠️ 공고 원문에 "재학·등록금·학자금" 언급이 있는지만 구분할 수 있어서, 취업/미취업/기타를
-            고르면 재학 요건이 없는 공고가 똑같이 보여요. 재학 관련 공고를 찾을 때 특히 유용해요.
+            ⚠️ 공고 원문에 "재학·등록금·학자금" 언급이 있는지만 구분할 수 있어서, 재학 요건이 없는
+            공고를 찾을 때보다는 재학 관련 공고를 찾을 때 특히 유용해요.
           </p>
         </>
       )}
