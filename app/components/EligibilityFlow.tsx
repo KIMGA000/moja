@@ -6,6 +6,9 @@ import {
   INTEREST_CATEGORY_LABEL,
   PROGRAMS,
   PROTECTION_END_TYPE_LABEL,
+  addYears,
+  buildAgeInfo,
+  ddayLabel,
   type CurrentStatus,
   type InterestCategory,
   type OnboardingProfile,
@@ -13,7 +16,8 @@ import {
   type YesNoUnknown,
 } from "../data/eligibility";
 import { matchRealItems, type EvaluatedRealItem } from "../data/realMatch";
-import { SOURCE_LABEL, type WelfareItem } from "../data/apiPreview";
+import { SOURCE_LABEL, type AnnouncementRecord, type WelfareItem } from "../data/apiPreview";
+import { logAnnouncementClick } from "../../lib/bookmarks";
 import {
   CARD_STYLE,
   COLORS,
@@ -831,27 +835,238 @@ function groupIneligibleByReason(items: EvaluatedRealItem[]): { label: string; i
     .sort((a, b) => b.items.length - a.items.length);
 }
 
+type PersonalStatus = { title: string; dday: string; detail: string };
+
+// 로그인 여부와 무관하게 온보딩 답변만 있으면 계산 가능 — 로그인하면 이 답변이 계정에
+// 저장돼서 재방문 시에도 계속 같은 요약이 바로 뜨는 것뿐이다.
+function buildPersonalStatus(profile: OnboardingProfile, todayIso: string): PersonalStatus | null {
+  if (!profile.birthDate && !profile.protectionEndDate) return null;
+  const ageInfo = buildAgeInfo(profile, todayIso);
+
+  if (profile.protectionEndType === "CURRENTLY_PROTECTED") {
+    if (!profile.protectionEndDate) return null;
+    return {
+      title: "보호종료 예정까지",
+      dday: ddayLabel(profile.protectionEndDate, todayIso),
+      detail: `보호종료(예정)일: ${profile.protectionEndDate}`,
+    };
+  }
+
+  if (!ageInfo.anchorDate) return null;
+  const fiveYearDate = addYears(ageInfo.anchorDate, 5) ?? undefined;
+  const yearsPassed = ageInfo.yearsSinceAnchor;
+  return {
+    title: "자립준비청년 지원 자격 기준(5년)까지",
+    dday: ddayLabel(fiveYearDate, todayIso),
+    detail:
+      yearsPassed !== null
+        ? `보호종료(또는 만 18세) 후 약 ${yearsPassed.toFixed(1)}년 경과`
+        : "",
+  };
+}
+
+function PersonalStatusCard({ profile, todayIso }: { profile: OnboardingProfile; todayIso: string }) {
+  const status = buildPersonalStatus(profile, todayIso);
+  if (!status) return null;
+  return (
+    <section style={{ ...CARD_STYLE, textAlign: "center", background: COLORS.accentVioletBg, border: "none" }}>
+      <p style={{ fontSize: "12px", color: COLORS.inkMuted, fontWeight: 700 }}>{status.title}</p>
+      <p style={{ fontSize: "32px", fontWeight: 800, color: COLORS.accentViolet, marginTop: "6px" }}>
+        {status.dday}
+      </p>
+      {status.detail && (
+        <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>{status.detail}</p>
+      )}
+    </section>
+  );
+}
+
+function PersonalProfileCard({
+  nickname,
+  profile,
+  onEditProfile,
+}: {
+  nickname: string;
+  profile: OnboardingProfile;
+  onEditProfile: () => void;
+}) {
+  const details: string[] = [];
+  if (profile.region) details.push(profile.region);
+  if (profile.currentStatus) details.push(CURRENT_STATUS_LABEL[profile.currentStatus]);
+  for (const category of profile.interestCategories) details.push(INTEREST_CATEGORY_LABEL[category]);
+
+  return (
+    <section style={{ ...CARD_STYLE, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div>
+        <p style={{ fontSize: "15px", fontWeight: 800, color: COLORS.ink }}>{nickname}님의 자립 현황</p>
+        {details.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "8px" }}>
+            {details.map((d) => (
+              <span key={d} style={pillBadge("violet")}>
+                {d}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <button
+        onClick={onEditProfile}
+        style={{ background: "none", border: "none", fontSize: "12px", fontWeight: 700, color: COLORS.inkMuted }}
+      >
+        정보 수정
+      </button>
+    </section>
+  );
+}
+
+function tabButtonStyle(active: boolean) {
+  return {
+    padding: "10px 16px",
+    borderRadius: "999px",
+    border: `1.5px solid ${active ? COLORS.ink : COLORS.cardBorder}`,
+    background: active ? COLORS.ink : "#ffffff",
+    color: active ? "#ffffff" : COLORS.inkMuted,
+    fontSize: "13px",
+    fontWeight: 700,
+  } as const;
+}
+
+// "매칭 결과"(자격 판정) 말고, DB에 동기화된 공고 전체를 조건 없이 훑어보는 탭.
+// 지역/재학/관심분야는 명시적 필터라서 자격 판정(realMatch.ts)과 달리 "안 맞으면 숨김"이지
+// "그래서 못 받는다"는 판정이 아니다 — 그냥 찾아보기 편하라고 거르는 것뿐.
+function AnnouncementBrowser({
+  items,
+  profile,
+  bookmarkedKeys,
+  onToggleBookmark,
+}: {
+  items: AnnouncementRecord[];
+  profile: OnboardingProfile;
+  bookmarkedKeys?: Set<string>;
+  onToggleBookmark?: (source: string, sourceId: string) => void;
+}) {
+  const [myRegionOnly, setMyRegionOnly] = useState(false);
+  const [enrolledOnly, setEnrolledOnly] = useState(false);
+  const [interestFilter, setInterestFilter] = useState<Set<InterestCategory>>(new Set());
+  const isBookmarked = (source: string, sourceId: string) => bookmarkedKeys?.has(`${source}:${sourceId}`) ?? false;
+
+  const toggleInterest = (category: InterestCategory) => {
+    setInterestFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  };
+
+  const filtered = items.filter((item) => {
+    if (myRegionOnly && profile.region && item.regionScope && item.regionScope !== profile.region) return false;
+    if (enrolledOnly && !item.requiresEnrolled) return false;
+    if (interestFilter.size > 0 && !item.interestCategories.some((c) => interestFilter.has(c as InterestCategory))) {
+      return false;
+    }
+    return true;
+  });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+        <button onClick={() => setMyRegionOnly((v) => !v)} style={tabButtonStyle(myRegionOnly)}>
+          📍 내 지역만
+        </button>
+        <button onClick={() => setEnrolledOnly((v) => !v)} style={tabButtonStyle(enrolledOnly)}>
+          🎓 재학생 전용만
+        </button>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+        {(Object.keys(INTEREST_CATEGORY_LABEL) as InterestCategory[]).map((category) => (
+          <button
+            key={category}
+            onClick={() => toggleInterest(category)}
+            style={{ ...tabButtonStyle(interestFilter.has(category)), padding: "6px 12px", fontSize: "12px" }}
+          >
+            {INTEREST_CATEGORY_LABEL[category]}
+          </button>
+        ))}
+      </div>
+
+      <p style={{ fontSize: "12px", color: COLORS.inkMuted }}>{filtered.length}건</p>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        {filtered.length === 0 && (
+          <p style={{ fontSize: "13px", color: COLORS.onDarkMuted }}>조건에 맞는 공고가 없어요.</p>
+        )}
+        {filtered.map((item, i) => (
+          <section key={`${item.source}-${item.servId}-${i}`} style={{ ...CARD_STYLE, padding: "22px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <span style={pillBadge("violet")}>{SOURCE_LABEL[item.source]}</span>
+              {onToggleBookmark && (
+                <button
+                  onClick={() => onToggleBookmark(item.source, item.servId)}
+                  aria-label="관심공고 등록"
+                  style={{ background: "none", border: "none", fontSize: "20px", lineHeight: 1, color: COLORS.ink, padding: 0 }}
+                >
+                  {isBookmarked(item.source, item.servId) ? "⭐" : "☆"}
+                </button>
+              )}
+            </div>
+            <div style={{ marginTop: "10px" }}>
+              <p style={{ fontSize: "16px", fontWeight: 800, color: COLORS.ink }}>{item.servNm}</p>
+              <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "2px" }}>
+                {item.org}
+                {item.region && ` · ${item.region}`}
+              </p>
+            </div>
+            <p style={{ fontSize: "13px", color: "#3f3f46", marginTop: "10px", lineHeight: 1.6 }}>{item.servDgst}</p>
+            {item.deadline && <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>⏰ {item.deadline}</p>}
+            <a
+              href={item.link}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => logAnnouncementClick(item.source, item.servId)}
+              style={{ display: "inline-block", marginTop: "12px", fontSize: "13px", fontWeight: 700, color: COLORS.accentViolet, textDecoration: "none" }}
+            >
+              공식 안내 페이지 바로가기 →
+            </a>
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function EligibilityResultScreen({
   profile,
   todayIso,
   items,
   loading,
   error,
+  nickname,
   onEditProfile,
   onBack,
+  hideFooterActions,
+  bookmarkedKeys,
+  onToggleBookmark,
 }: {
   profile: OnboardingProfile;
   todayIso: string;
-  items: WelfareItem[] | null;
+  items: AnnouncementRecord[] | null;
   loading: boolean;
   error: string | null;
+  nickname?: string | null;
   onEditProfile: () => void;
   onBack: () => void;
+  hideFooterActions?: boolean;
+  bookmarkedKeys?: Set<string>;
+  onToggleBookmark?: (source: string, sourceId: string) => void;
 }) {
   const summary = useMemo(
     () => (items ? matchRealItems(items, profile, todayIso) : null),
     [items, profile, todayIso]
   );
+  const [showBookmarkedOnly, setShowBookmarkedOnly] = useState(false);
+  const [viewTab, setViewTab] = useState<"matched" | "all">("matched");
+  const isBookmarked = (source: string, sourceId: string) => bookmarkedKeys?.has(`${source}:${sourceId}`) ?? false;
 
   if (loading || !summary) {
     return (
@@ -870,6 +1085,17 @@ export function EligibilityResultScreen({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "22px", animation: "fadeIn 0.3s" }}>
+      {nickname ? (
+        <>
+          <PersonalProfileCard nickname={nickname} profile={profile} onEditProfile={onEditProfile} />
+          <PersonalStatusCard profile={profile} todayIso={todayIso} />
+        </>
+      ) : (
+        <p style={{ fontSize: "12px", color: COLORS.inkMuted, textAlign: "center" }}>
+          💡 로그인하면 이 진단 결과가 저장되고, 보호종료까지 남은 기간 같은 정보도 더 개인화해서 보여드려요.
+        </p>
+      )}
+
       <section style={{ ...CARD_STYLE, textAlign: "center" }}>
         <p style={{ fontSize: "13px", color: COLORS.inkMuted, fontWeight: 700 }}>
           자격 매칭 결과 (공공데이터 기준 · 주기적으로 갱신)
@@ -883,6 +1109,42 @@ export function EligibilityResultScreen({
         </p>
       </section>
 
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
+        <button onClick={() => setViewTab("matched")} style={tabButtonStyle(viewTab === "matched")}>
+          매칭 결과
+        </button>
+        <button onClick={() => setViewTab("all")} style={tabButtonStyle(viewTab === "all")}>
+          전체 공고 보기
+        </button>
+        {viewTab === "matched" && onToggleBookmark && (
+          <button
+            onClick={() => setShowBookmarkedOnly((prev) => !prev)}
+            style={{
+              padding: "8px 14px",
+              borderRadius: "999px",
+              border: `1.5px solid ${showBookmarkedOnly ? COLORS.ink : COLORS.cardBorder}`,
+              background: showBookmarkedOnly ? COLORS.ink : "#ffffff",
+              color: showBookmarkedOnly ? "#ffffff" : COLORS.inkMuted,
+              fontSize: "12px",
+              fontWeight: 700,
+            }}
+          >
+            {showBookmarkedOnly ? "⭐" : "☆"} 관심공고만 보기
+          </button>
+        )}
+      </div>
+
+      {viewTab === "all" && (
+        <AnnouncementBrowser
+          items={items ?? []}
+          profile={profile}
+          bookmarkedKeys={bookmarkedKeys}
+          onToggleBookmark={onToggleBookmark}
+        />
+      )}
+
+      {viewTab === "matched" && (
+        <>
       <section>
         <h3 style={{ fontSize: "14px", fontWeight: 800, color: COLORS.success, marginBottom: "12px" }}>
           가능성 높은 지원 ({summary.eligible.length})
@@ -891,9 +1153,17 @@ export function EligibilityResultScreen({
           {summary.eligible.length === 0 && (
             <p style={{ fontSize: "13px", color: COLORS.onDarkMuted }}>조건에 맞는 지원을 찾지 못했어요.</p>
           )}
-          {summary.eligible.map((item, i) => (
-            <RealItemCard key={`${item.source}-${item.servId}-${i}`} item={item} tone="eligible" />
-          ))}
+          {summary.eligible
+            .filter((item) => !showBookmarkedOnly || isBookmarked(item.source, item.servId))
+            .map((item, i) => (
+              <RealItemCard
+                key={`${item.source}-${item.servId}-${i}`}
+                item={item}
+                tone="eligible"
+                bookmarked={onToggleBookmark ? isBookmarked(item.source, item.servId) : undefined}
+                onToggleBookmark={onToggleBookmark ? () => onToggleBookmark(item.source, item.servId) : undefined}
+              />
+            ))}
         </div>
       </section>
 
@@ -903,9 +1173,17 @@ export function EligibilityResultScreen({
             확인이 필요한 지원 ({summary.uncertain.length})
           </h3>
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-            {summary.uncertain.map((item, i) => (
-              <RealItemCard key={`${item.source}-${item.servId}-${i}`} item={item} tone="uncertain" />
-            ))}
+            {summary.uncertain
+              .filter((item) => !showBookmarkedOnly || isBookmarked(item.source, item.servId))
+              .map((item, i) => (
+                <RealItemCard
+                  key={`${item.source}-${item.servId}-${i}`}
+                  item={item}
+                  tone="uncertain"
+                  bookmarked={onToggleBookmark ? isBookmarked(item.source, item.servId) : undefined}
+                  onToggleBookmark={onToggleBookmark ? () => onToggleBookmark(item.source, item.servId) : undefined}
+                />
+              ))}
           </div>
         </section>
       )}
@@ -940,13 +1218,19 @@ export function EligibilityResultScreen({
           </div>
         </section>
       )}
+        </>
+      )}
 
-      <button onClick={onEditProfile} style={GHOST_BUTTON_ON_DARK}>
-        조건 다시 입력하기
-      </button>
-      <button onClick={onBack} style={{ ...GHOST_BUTTON_ON_DARK, border: "none" }}>
-        처음으로
-      </button>
+      {!hideFooterActions && (
+        <>
+          <button onClick={onEditProfile} style={GHOST_BUTTON_ON_DARK}>
+            조건 다시 입력하기
+          </button>
+          <button onClick={onBack} style={{ ...GHOST_BUTTON_ON_DARK, border: "none" }}>
+            처음으로
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -971,9 +1255,13 @@ function IneligibleItemRow({ item }: { item: EvaluatedRealItem }) {
 function RealItemCard({
   item,
   tone,
+  bookmarked,
+  onToggleBookmark,
 }: {
   item: EvaluatedRealItem;
   tone: "eligible" | "uncertain";
+  bookmarked?: boolean;
+  onToggleBookmark?: () => void;
 }) {
   const toneStyle = {
     eligible: { border: "#bbf7d0", badge: pillBadge("success" as const) },
@@ -982,7 +1270,18 @@ function RealItemCard({
 
   return (
     <section style={{ ...CARD_STYLE, padding: "22px", border: `1px solid ${toneStyle.border}` }}>
-      <span style={pillBadge("violet")}>{SOURCE_LABEL[item.source]}</span>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <span style={pillBadge("violet")}>{SOURCE_LABEL[item.source]}</span>
+        {onToggleBookmark && (
+          <button
+            onClick={onToggleBookmark}
+            aria-label="관심공고 등록"
+            style={{ background: "none", border: "none", fontSize: "20px", lineHeight: 1, color: COLORS.ink, padding: 0 }}
+          >
+            {bookmarked ? "⭐" : "☆"}
+          </button>
+        )}
+      </div>
 
       <div style={{ marginTop: "10px" }}>
         <p style={{ fontSize: "16px", fontWeight: 800, color: COLORS.ink }}>{item.servNm}</p>
@@ -1016,6 +1315,7 @@ function RealItemCard({
         href={item.link}
         target="_blank"
         rel="noreferrer"
+        onClick={() => logAnnouncementClick(item.source, item.servId)}
         style={{
           display: "inline-block",
           marginTop: "12px",

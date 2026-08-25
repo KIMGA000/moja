@@ -3,116 +3,126 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  ANNOUNCEMENTS,
-  BOOKMARK_STORAGE_KEY,
-  INTEREST_LABEL,
-  INTEREST_OPTIONS,
-  PROTECTION_STATUS_LABEL,
-  matchAnnouncements,
-  type Announcement,
-  type Interest,
-  type ProtectionStatus,
-  type Region,
-} from "./data/jaripMatch";
-import {
   API_SAMPLE_ITEMS,
   SOURCE_LABEL,
+  type AnnouncementRecord,
   type WelfareItem,
   type WelfareSource,
 } from "./data/apiPreview";
 import { EMPTY_PROFILE, type OnboardingProfile } from "./data/eligibility";
-import { EligibilityOnboarding, EligibilityResultScreen } from "./components/EligibilityFlow";
+import {
+  EligibilityOnboarding,
+  EligibilityResultScreen,
+} from "./components/EligibilityFlow";
+import { AuthBar } from "./components/AuthBar";
+import { getNickname, useAuthSession } from "./hooks/useAuthSession";
+import { addBookmark, bookmarkKey, listBookmarkKeys, logAnnouncementClick, removeBookmark } from "../lib/bookmarks";
+import { supabase } from "../lib/supabase";
 import {
   CARD_STYLE,
   COLORS,
   GHOST_BUTTON_ON_CARD,
   GHOST_BUTTON_ON_DARK,
   PRIMARY_BUTTON,
-  PRIMARY_BUTTON_DISABLED,
-  choiceButtonStyle,
   pillBadge,
 } from "./theme";
 
-type Screen =
-  | "landing"
-  | "profile"
-  | "result"
-  | "bookmarks"
-  | "apiPreview"
-  | "eligOnboarding"
-  | "eligResult";
+type Screen = "landing" | "apiPreview" | "eligOnboarding" | "eligResult";
 
 export default function Home() {
   const [screen, setScreen] = useState<Screen>("landing");
-  const [region, setRegion] = useState<Region | null>(null);
-  const [status, setStatus] = useState<ProtectionStatus | null>(null);
-  const [interests, setInterests] = useState<Interest[]>([]);
-  const [bookmarks, setBookmarks] = useState<string[]>([]);
-  const [loaded, setLoaded] = useState(false);
 
-  const [apiFilteredItems, setApiFilteredItems] = useState<WelfareItem[] | null>(null);
-  const [apiYouthItems, setApiYouthItems] = useState<WelfareItem[] | null>(null);
+  const [apiFilteredItems, setApiFilteredItems] = useState<
+    WelfareItem[] | null
+  >(null);
+  const [apiYouthItems, setApiYouthItems] = useState<WelfareItem[] | null>(
+    null,
+  );
   const [apiAllItems, setApiAllItems] = useState<WelfareItem[] | null>(null);
-  const [apiViewMode, setApiViewMode] = useState<"careLeaver" | "youth" | "all">("careLeaver");
+  const [apiViewMode, setApiViewMode] = useState<
+    "careLeaver" | "youth" | "all"
+  >("careLeaver");
   const [apiLoading, setApiLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [apiIsFallback, setApiIsFallback] = useState(false);
   const [apiCounts, setApiCounts] = useState<Record<
     WelfareSource,
-    { totalCount: number; fetchedCount: number; filteredCount: number; youthCount: number }
+    {
+      totalCount: number;
+      fetchedCount: number;
+      filteredCount: number;
+      youthCount: number;
+    }
   > | null>(null);
-  const [apiSelectedSource, setApiSelectedSource] = useState<WelfareSource | null>(null);
+  const [apiSelectedSource, setApiSelectedSource] =
+    useState<WelfareSource | null>(null);
 
-  const [eligProfile, setEligProfile] = useState<OnboardingProfile>(EMPTY_PROFILE);
-  const [eligItems, setEligItems] = useState<WelfareItem[] | null>(null);
+  const [eligProfile, setEligProfile] =
+    useState<OnboardingProfile>(EMPTY_PROFILE);
+  const [eligItems, setEligItems] = useState<AnnouncementRecord[] | null>(null);
   const [eligLoading, setEligLoading] = useState(false);
   const [eligError, setEligError] = useState<string | null>(null);
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
+  const { session } = useAuthSession();
+  const [savedProfile, setSavedProfile] = useState<OnboardingProfile | null>(null);
+
+  // 로그인한 사용자는 계정에 저장된 온보딩 답변이 있으면 매번 다시 입력하지 않아도 되도록,
+  // 로그인 시 저장된 자격 진단 프로필을 불러와둔다. 신원인증이 아니라 "같은 사람 것" 확인용
+  // 로그인이라, 로그인 안 해도 정밀 진단 자체는 그대로 가능하다.
   useEffect(() => {
-    const saved = localStorage.getItem(BOOKMARK_STORAGE_KEY);
-    if (saved) {
-      try {
-        setBookmarks(JSON.parse(saved) as string[]);
-      } catch {
-        setBookmarks([]);
-      }
+    if (!session || !supabase) {
+      setSavedProfile(null);
+      return;
     }
-    setLoaded(true);
-  }, []);
+    supabase
+      .from("profiles")
+      .select("onboarding_profile")
+      .eq("id", session.user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        const profile = data?.onboarding_profile as OnboardingProfile | null | undefined;
+        if (profile) {
+          setSavedProfile(profile);
+          setEligProfile(profile);
+          ensureEligDataLoaded();
+        }
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
+
+  const [bookmarkedKeys, setBookmarkedKeys] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!loaded) return;
-    localStorage.setItem(BOOKMARK_STORAGE_KEY, JSON.stringify(bookmarks));
-  }, [bookmarks, loaded]);
+    if (!session) {
+      setBookmarkedKeys(new Set());
+      return;
+    }
+    listBookmarkKeys(session.user.id).then(setBookmarkedKeys);
+  }, [session]);
 
-  const results = useMemo(() => {
-    if (!region || !status) return [];
-    return matchAnnouncements({ region, status, interests });
-  }, [region, status, interests]);
-
-  const bookmarkedAnnouncements = useMemo(
-    () => ANNOUNCEMENTS.filter((a) => bookmarks.includes(a.id)),
-    [bookmarks]
-  );
-
-  const toggleBookmark = (id: string) => {
-    setBookmarks((prev) =>
-      prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]
-    );
-  };
-
-  const toggleInterest = (interest: Interest) => {
-    setInterests((prev) =>
-      prev.includes(interest) ? prev.filter((i) => i !== interest) : [...prev, interest]
-    );
+  const toggleBookmark = (source: string, sourceId: string) => {
+    const key = bookmarkKey(source, sourceId);
+    const wasBookmarked = bookmarkedKeys.has(key);
+    setBookmarkedKeys((prev) => {
+      const next = new Set(prev);
+      if (wasBookmarked) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+    (wasBookmarked ? removeBookmark(source, sourceId) : addBookmark(source, sourceId)).catch(() => {
+      // 실패하면 낙관적 업데이트를 되돌린다.
+      setBookmarkedKeys((prev) => {
+        const next = new Set(prev);
+        if (wasBookmarked) next.add(key);
+        else next.delete(key);
+        return next;
+      });
+    });
   };
 
   const restart = () => {
-    setRegion(null);
-    setStatus(null);
-    setInterests([]);
-    setEligProfile(EMPTY_PROFILE);
+    setEligProfile(savedProfile ?? EMPTY_PROFILE);
     setScreen("landing");
   };
 
@@ -155,19 +165,44 @@ export default function Home() {
     fetch("/api/announcements")
       .then(async (res) => {
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "공고 데이터를 불러오지 못했어요.");
-        setEligItems(data.items as WelfareItem[]);
+        if (!res.ok)
+          throw new Error(data.error ?? "공고 데이터를 불러오지 못했어요.");
+        setEligItems(data.items as AnnouncementRecord[]);
       })
       .catch((err: Error) => {
         setEligError(err.message);
-        setEligItems(API_SAMPLE_ITEMS);
+        setEligItems(
+          API_SAMPLE_ITEMS.map((item) => ({
+            ...item,
+            regionScope: null,
+            requiresEnrolled: false,
+            interestCategories: [],
+          }))
+        );
       })
       .finally(() => setEligLoading(false));
   };
 
   const openEligOnboarding = () => {
     ensureEligDataLoaded();
-    setScreen("eligOnboarding");
+    if (savedProfile) {
+      // 이미 계정에 저장된 답변이 있으면 온보딩 질문을 건너뛰고 바로 결과로 간다.
+      setEligProfile(savedProfile);
+      setScreen("eligResult");
+    } else {
+      setScreen("eligOnboarding");
+    }
+  };
+
+  const handleEligSubmit = async () => {
+    if (session && supabase) {
+      await supabase.from("profiles").upsert(
+        { id: session.user.id, onboarding_profile: eligProfile, updated_at: new Date().toISOString() },
+        { onConflict: "id" }
+      );
+      setSavedProfile(eligProfile);
+    }
+    setScreen("eligResult");
   };
 
   return (
@@ -178,50 +213,45 @@ export default function Home() {
           maxWidth: "640px",
           margin: "0 auto",
           padding: "28px 20px 80px",
-        }}
-      >
-        <TopNav
-          screen={screen}
-          bookmarkCount={bookmarks.length}
-          onHome={restart}
-          onBookmarks={() => setScreen("bookmarks")}
-        />
+        }}>
+        <TopNav screen={screen} onHome={restart} />
 
-        {screen === "landing" && (
+        {screen === "landing" && savedProfile && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <button
+                onClick={() => setScreen("eligOnboarding")}
+                style={{ background: "none", border: "none", fontSize: "13px", fontWeight: 700, color: COLORS.inkMuted }}
+              >
+                🔁 진단 다시하기
+              </button>
+              <Link
+                href="/community"
+                style={{ fontSize: "13px", fontWeight: 700, color: COLORS.inkMuted, textDecoration: "none" }}
+              >
+                💬 커뮤니티
+              </Link>
+            </div>
+            <EligibilityResultScreen
+              profile={eligProfile}
+              todayIso={todayIso}
+              items={eligItems}
+              loading={eligLoading}
+              error={eligError}
+              nickname={session ? getNickname(session) : null}
+              onEditProfile={() => setScreen("eligOnboarding")}
+              onBack={() => {}}
+              hideFooterActions
+              bookmarkedKeys={bookmarkedKeys}
+              onToggleBookmark={session ? toggleBookmark : undefined}
+            />
+          </div>
+        )}
+
+        {screen === "landing" && !savedProfile && (
           <Landing
-            onStart={() => setScreen("profile")}
             onApiPreview={openApiPreview}
             onEligStart={openEligOnboarding}
-          />
-        )}
-
-        {screen === "profile" && (
-          <ProfileStep
-            region={region}
-            status={status}
-            interests={interests}
-            onRegion={setRegion}
-            onStatus={setStatus}
-            onToggleInterest={toggleInterest}
-            onSubmit={() => setScreen("result")}
-          />
-        )}
-
-        {screen === "result" && region && status && (
-          <ResultScreen
-            results={results}
-            bookmarks={bookmarks}
-            onToggleBookmark={toggleBookmark}
-            onEditProfile={() => setScreen("profile")}
-            onRestart={restart}
-          />
-        )}
-
-        {screen === "bookmarks" && (
-          <BookmarksScreen
-            announcements={bookmarkedAnnouncements}
-            onToggleBookmark={toggleBookmark}
-            onBack={() => setScreen(region && status ? "result" : "landing")}
           />
         )}
 
@@ -241,6 +271,8 @@ export default function Home() {
               setApiSelectedSource((prev) => (prev === source ? null : source))
             }
             onBack={() => setScreen("landing")}
+            bookmarkedKeys={bookmarkedKeys}
+            onToggleBookmark={session ? toggleBookmark : undefined}
           />
         )}
 
@@ -249,7 +281,7 @@ export default function Home() {
             profile={eligProfile}
             todayIso={todayIso}
             onChange={setEligProfile}
-            onSubmit={() => setScreen("eligResult")}
+            onSubmit={handleEligSubmit}
             onCancel={() => setScreen("landing")}
           />
         )}
@@ -261,8 +293,11 @@ export default function Home() {
             items={eligItems}
             loading={eligLoading}
             error={eligError}
+            nickname={session ? getNickname(session) : null}
             onEditProfile={() => setScreen("eligOnboarding")}
             onBack={restart}
+            bookmarkedKeys={bookmarkedKeys}
+            onToggleBookmark={session ? toggleBookmark : undefined}
           />
         )}
       </main>
@@ -280,8 +315,7 @@ function SiteHeader({ onHome }: { onHome: () => void }) {
         background: "rgba(255, 255, 255, 0.85)",
         backdropFilter: "blur(8px)",
         zIndex: 10,
-      }}
-    >
+      }}>
       <div
         style={{
           maxWidth: "640px",
@@ -289,9 +323,9 @@ function SiteHeader({ onHome }: { onHome: () => void }) {
           padding: "14px 20px",
           display: "flex",
           alignItems: "center",
+          justifyContent: "space-between",
           gap: "8px",
-        }}
-      >
+        }}>
         <button
           onClick={onHome}
           style={{
@@ -303,8 +337,7 @@ function SiteHeader({ onHome }: { onHome: () => void }) {
             fontSize: "15px",
             fontWeight: 800,
             color: COLORS.onDark,
-          }}
-        >
+          }}>
           <span
             style={{
               width: "26px",
@@ -315,68 +348,75 @@ function SiteHeader({ onHome }: { onHome: () => void }) {
               alignItems: "center",
               justifyContent: "center",
               fontSize: "14px",
-            }}
-          >
+            }}>
             🧭
           </span>
-          모자 <span style={{ color: COLORS.onDarkMuted, fontWeight: 600 }}>MOJA</span>
+          모자{" "}
+          <span style={{ color: COLORS.onDarkMuted, fontWeight: 600 }}>
+            MOJA
+          </span>
         </button>
+        <AuthBar />
       </div>
     </header>
   );
 }
 
-function TopNav({
-  screen,
-  bookmarkCount,
-  onHome,
-  onBookmarks,
-}: {
-  screen: Screen;
-  bookmarkCount: number;
-  onHome: () => void;
-  onBookmarks: () => void;
-}) {
+function TopNav({ screen, onHome }: { screen: Screen; onHome: () => void }) {
   if (screen === "landing") return null;
   return (
     <div
       style={{
         display: "flex",
-        justifyContent: "space-between",
+        justifyContent: "flex-start",
         alignItems: "center",
         marginBottom: "20px",
-      }}
-    >
+      }}>
       <button onClick={onHome} style={{ ...navLinkStyle }}>
         ← 처음으로
-      </button>
-      <button onClick={onBookmarks} style={navLinkStyle}>
-        ⭐ 저장한 공고 {bookmarkCount > 0 ? `(${bookmarkCount})` : ""}
       </button>
     </div>
   );
 }
 
 function Landing({
-  onStart,
   onApiPreview,
   onEligStart,
 }: {
-  onStart: () => void;
   onApiPreview: () => void;
   onEligStart: () => void;
 }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "20px", animation: "fadeIn 0.3s" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "20px",
+        animation: "fadeIn 0.3s",
+      }}>
       <header style={{ marginTop: "12px" }}>
         <span style={pillBadge("lime")}>MOJA · 자립지원 매칭</span>
-        <h1 style={{ fontSize: "30px", fontWeight: 800, marginTop: "14px", color: COLORS.onDark, lineHeight: 1.3 }}>
+        <h1
+          style={{
+            fontSize: "30px",
+            fontWeight: 800,
+            marginTop: "14px",
+            color: COLORS.onDark,
+            lineHeight: 1.3,
+          }}>
           받을 수 있는 지원,
           <br />
           놓치지 않도록.
         </h1>
-        <p style={{ fontSize: "14px", color: COLORS.onDarkMuted, marginTop: "12px", lineHeight: 1.6 }}>
-          자립준비청년 여러분의 나이와 보호종료 후 지난 기간에 따라 지원이 갈라져요.
+        <p
+          style={{
+            fontSize: "14px",
+            color: COLORS.onDarkMuted,
+            marginTop: "12px",
+            lineHeight: 1.6,
+          }}>
+          자립준비청년 여러분의 나이와 보호종료 후 지난 기간에 따라 지원이
+          갈라져요.
           <br />
           모자가 조건에 맞는 것만 찾아 정리해드려요.
         </p>
@@ -391,33 +431,41 @@ function Landing({
             fontSize: "14px",
             color: "#3f3f46",
             listStyle: "none",
-          }}
-        >
+          }}>
           <li>✅ 12개 질문으로 21개 제도 전부 자격 판별</li>
           <li>✅ 못 받는 지원도 이유와 함께 확인</li>
           <li>✅ 중복수급 충돌 미리 경고</li>
         </ul>
       </section>
 
-      <button onClick={onEligStart} style={{ ...PRIMARY_BUTTON, padding: "19px", fontSize: "16px" }}>
+      <button
+        onClick={onEligStart}
+        style={{ ...PRIMARY_BUTTON, padding: "19px", fontSize: "16px" }}>
         내 자격 정밀 진단하기 →
       </button>
 
-      <p style={{ fontSize: "12px", color: COLORS.onDarkFaint, textAlign: "center", lineHeight: 1.6 }}>
-        이 판정은 MVP 근사치예요. 최종 자격과 기한은 반드시 담당 자립지원전담기관에서
+      <p
+        style={{
+          fontSize: "12px",
+          color: COLORS.onDarkFaint,
+          textAlign: "center",
+          lineHeight: 1.6,
+        }}>
+        이 판정은 MVP 근사치예요. 최종 자격과 기한은 반드시 담당
+        자립지원전담기관에서
         <br />
         다시 확인해주세요.
       </p>
 
-      <button onClick={onStart} style={GHOST_BUTTON_ON_DARK}>
-        간단히 관심분야로만 공고 찾기
-      </button>
-
       <Link
         href="/community"
-        style={{ ...GHOST_BUTTON_ON_DARK, display: "block", textAlign: "center", textDecoration: "none" }}
-      >
-        💬 커뮤니티 — 같은 처지의 이야기 나누기
+        style={{
+          ...GHOST_BUTTON_ON_DARK,
+          display: "block",
+          textAlign: "center",
+          textDecoration: "none",
+        }}>
+        💬 커뮤니티
       </Link>
 
       <button
@@ -429,234 +477,8 @@ function Landing({
           fontWeight: 700,
           color: COLORS.onDarkMuted,
           textDecoration: "underline",
-        }}
-      >
+        }}>
         🔎 실시간 공공데이터 API 결과 보기
-      </button>
-    </div>
-  );
-}
-
-function ProfileStep({
-  region,
-  status,
-  interests,
-  onRegion,
-  onStatus,
-  onToggleInterest,
-  onSubmit,
-}: {
-  region: Region | null;
-  status: ProtectionStatus | null;
-  interests: Interest[];
-  onRegion: (r: Region) => void;
-  onStatus: (s: ProtectionStatus) => void;
-  onToggleInterest: (i: Interest) => void;
-  onSubmit: () => void;
-}) {
-  const canSubmit = region !== null && status !== null;
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "18px", animation: "fadeIn 0.3s" }}>
-      <div style={CARD_STYLE}>
-        <h2 style={{ fontSize: "18px", fontWeight: 800, color: COLORS.ink }}>어디에 거주하고 계신가요?</h2>
-        <div style={{ display: "flex", gap: "12px", marginTop: "14px" }}>
-          {(["seoul", "other"] as Region[]).map((r) => (
-            <button key={r} onClick={() => onRegion(r)} style={choiceButtonStyle(region === r)}>
-              {r === "seoul" ? "서울" : "그 외 지역"}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div style={CARD_STYLE}>
-        <h2 style={{ fontSize: "18px", fontWeight: 800, color: COLORS.ink }}>지금 상황에 가까운 것은?</h2>
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "14px" }}>
-          {(Object.keys(PROTECTION_STATUS_LABEL) as ProtectionStatus[]).map((s) => (
-            <button key={s} onClick={() => onStatus(s)} style={choiceButtonStyle(status === s)}>
-              {PROTECTION_STATUS_LABEL[s]}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div style={CARD_STYLE}>
-        <h2 style={{ fontSize: "18px", fontWeight: 800, color: COLORS.ink }}>
-          관심 있는 분야를 골라주세요{" "}
-          <span style={{ fontWeight: 500, fontSize: "13px", color: COLORS.inkMuted }}>
-            (복수 선택, 선택 안 하면 전체)
-          </span>
-        </h2>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginTop: "14px" }}>
-          {INTEREST_OPTIONS.map((i) => (
-            <button
-              key={i}
-              onClick={() => onToggleInterest(i)}
-              style={{ ...choiceButtonStyle(interests.includes(i)), flex: "unset", padding: "10px 16px", fontSize: "14px" }}
-            >
-              {INTEREST_LABEL[i].emoji} {INTEREST_LABEL[i].label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <button
-        onClick={onSubmit}
-        disabled={!canSubmit}
-        style={canSubmit ? PRIMARY_BUTTON : PRIMARY_BUTTON_DISABLED}
-      >
-        매칭 결과 보기
-      </button>
-    </div>
-  );
-}
-
-function ResultScreen({
-  results,
-  bookmarks,
-  onToggleBookmark,
-  onEditProfile,
-  onRestart,
-}: {
-  results: Announcement[];
-  bookmarks: string[];
-  onToggleBookmark: (id: string) => void;
-  onEditProfile: () => void;
-  onRestart: () => void;
-}) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "20px", animation: "fadeIn 0.3s" }}>
-      <section style={{ ...CARD_STYLE, textAlign: "center" }}>
-        <p style={{ fontSize: "13px", color: COLORS.inkMuted, fontWeight: 700 }}>매칭 결과</p>
-        <h2 style={{ fontSize: "24px", fontWeight: 800, color: COLORS.ink, marginTop: "8px" }}>
-          {results.length}개의 공고를 찾았어요
-        </h2>
-      </section>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-        {results.length === 0 && (
-          <section style={CARD_STYLE}>
-            <p style={{ fontSize: "14px", color: COLORS.inkMuted }}>
-              조건에 딱 맞는 공고가 없어요. 관심분야를 늘리거나 자립정보ON에서 더 찾아보세요.
-            </p>
-          </section>
-        )}
-        {results.map((a) => (
-          <AnnouncementCard
-            key={a.id}
-            announcement={a}
-            bookmarked={bookmarks.includes(a.id)}
-            onToggleBookmark={() => onToggleBookmark(a.id)}
-          />
-        ))}
-      </div>
-
-      <button onClick={onEditProfile} style={GHOST_BUTTON_ON_DARK}>
-        조건 다시 선택하기
-      </button>
-      <button onClick={onRestart} style={{ ...GHOST_BUTTON_ON_DARK, border: "none" }}>
-        처음으로
-      </button>
-    </div>
-  );
-}
-
-function AnnouncementCard({
-  announcement,
-  bookmarked,
-  onToggleBookmark,
-}: {
-  announcement: Announcement;
-  bookmarked: boolean;
-  onToggleBookmark: () => void;
-}) {
-  return (
-    <section style={CARD_STYLE}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
-        <div>
-          <p style={{ fontSize: "16px", fontWeight: 800, color: COLORS.ink }}>{announcement.name}</p>
-          <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "2px" }}>{announcement.org}</p>
-        </div>
-        <button
-          onClick={onToggleBookmark}
-          aria-label="공고 저장"
-          style={{ background: "none", border: "none", fontSize: "22px", lineHeight: 1, color: COLORS.ink }}
-        >
-          {bookmarked ? "⭐" : "☆"}
-        </button>
-      </div>
-
-      <p style={{ fontSize: "13px", color: "#3f3f46", marginTop: "10px", lineHeight: 1.6 }}>
-        {announcement.summary}
-      </p>
-
-      <div
-        style={{
-          marginTop: "12px",
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "8px",
-          fontSize: "12px",
-          color: COLORS.inkMuted,
-        }}
-      >
-        {announcement.amount && <span>💵 {announcement.amount}</span>}
-        <span>🗓 {announcement.period}</span>
-        <span>📄 {announcement.documents}</span>
-      </div>
-
-      <a
-        href={announcement.link}
-        target="_blank"
-        rel="noreferrer"
-        style={{
-          display: "inline-block",
-          marginTop: "14px",
-          fontSize: "13px",
-          fontWeight: 700,
-          color: COLORS.accentViolet,
-          textDecoration: "none",
-        }}
-      >
-        공식 안내 페이지 바로가기 →
-      </a>
-    </section>
-  );
-}
-
-function BookmarksScreen({
-  announcements,
-  onToggleBookmark,
-  onBack,
-}: {
-  announcements: Announcement[];
-  onToggleBookmark: (id: string) => void;
-  onBack: () => void;
-}) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "20px", animation: "fadeIn 0.3s" }}>
-      <h2 style={{ fontSize: "20px", fontWeight: 800, color: COLORS.onDark }}>저장한 공고</h2>
-      <p style={{ fontSize: "13px", color: COLORS.onDarkMuted }}>이 브라우저에만 저장돼요. 서버로 전송되지 않아요.</p>
-
-      {announcements.length === 0 && (
-        <section style={CARD_STYLE}>
-          <p style={{ fontSize: "14px", color: COLORS.inkMuted }}>아직 저장한 공고가 없어요.</p>
-        </section>
-      )}
-
-      <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-        {announcements.map((a) => (
-          <AnnouncementCard
-            key={a.id}
-            announcement={a}
-            bookmarked
-            onToggleBookmark={() => onToggleBookmark(a.id)}
-          />
-        ))}
-      </div>
-
-      <button onClick={onBack} style={GHOST_BUTTON_ON_DARK}>
-        ← 돌아가기
       </button>
     </div>
   );
@@ -675,6 +497,8 @@ function ApiPreviewScreen({
   selectedSource,
   onSelectSource,
   onBack,
+  bookmarkedKeys,
+  onToggleBookmark,
 }: {
   filteredItems: WelfareItem[] | null;
   youthItems: WelfareItem[] | null;
@@ -686,23 +510,50 @@ function ApiPreviewScreen({
   isFallback: boolean;
   counts: Record<
     WelfareSource,
-    { totalCount: number; fetchedCount: number; filteredCount: number; youthCount: number }
+    {
+      totalCount: number;
+      fetchedCount: number;
+      filteredCount: number;
+      youthCount: number;
+    }
   > | null;
   selectedSource: WelfareSource | null;
   onSelectSource: (source: WelfareSource) => void;
   onBack: () => void;
+  bookmarkedKeys: Set<string>;
+  onToggleBookmark?: (source: string, sourceId: string) => void;
 }) {
   const baseItems =
-    viewMode === "all" ? allItems : viewMode === "youth" ? youthItems : filteredItems;
-  const items = selectedSource ? baseItems?.filter((item) => item.source === selectedSource) : baseItems;
+    viewMode === "all"
+      ? allItems
+      : viewMode === "youth"
+        ? youthItems
+        : filteredItems;
+  const items = selectedSource
+    ? baseItems?.filter((item) => item.source === selectedSource)
+    : baseItems;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "20px", animation: "fadeIn 0.3s" }}>
-      <h2 style={{ fontSize: "20px", fontWeight: 800, color: COLORS.onDark }}>실시간 공공데이터 API 결과</h2>
-      <p style={{ fontSize: "13px", color: COLORS.onDarkMuted, lineHeight: 1.6 }}>
-        복지서비스·정부24·마이홈포털·고용24 등 7개 공공 API에서 &quot;자립&quot;·&quot;청년&quot; 두
-        키워드로 조회했어요. 아래 버튼으로 자립준비청년 관련·청년 관련·원본 전체 중 골라 볼 수
-        있고, 소스 카드를 누르면 그 소스만 따로 볼 수 있어요.
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "20px",
+        animation: "fadeIn 0.3s",
+      }}>
+      <h2 style={{ fontSize: "20px", fontWeight: 800, color: COLORS.onDark }}>
+        실시간 공공데이터 API 결과
+      </h2>
+      <p
+        style={{
+          fontSize: "13px",
+          color: COLORS.onDarkMuted,
+          lineHeight: 1.6,
+        }}>
+        복지서비스·정부24·마이홈포털·고용24 등 7개 공공 API에서
+        &quot;자립&quot;·&quot;청년&quot; 두 키워드로 조회했어요. 아래 버튼으로
+        자립준비청년 관련·청년 관련·원본 전체 중 골라 볼 수 있고, 소스 카드를
+        누르면 그 소스만 따로 볼 수 있어요.
       </p>
 
       {!loading && (
@@ -710,22 +561,27 @@ function ApiPreviewScreen({
           <button
             onClick={() => onChangeViewMode("careLeaver")}
             disabled={viewMode === "careLeaver"}
-            style={viewMode === "careLeaver" ? toggleActiveStyle : toggleInactiveStyle}
-          >
+            style={
+              viewMode === "careLeaver"
+                ? toggleActiveStyle
+                : toggleInactiveStyle
+            }>
             자립준비청년 관련만 ({filteredItems?.length ?? 0})
           </button>
           <button
             onClick={() => onChangeViewMode("youth")}
             disabled={viewMode === "youth"}
-            style={viewMode === "youth" ? toggleActiveStyle : toggleInactiveStyle}
-          >
+            style={
+              viewMode === "youth" ? toggleActiveStyle : toggleInactiveStyle
+            }>
             청년 관련만 ({youthItems?.length ?? 0})
           </button>
           <button
             onClick={() => onChangeViewMode("all")}
             disabled={viewMode === "all"}
-            style={viewMode === "all" ? toggleActiveStyle : toggleInactiveStyle}
-          >
+            style={
+              viewMode === "all" ? toggleActiveStyle : toggleInactiveStyle
+            }>
             전체 공고 ({allItems?.length ?? 0})
           </button>
         </div>
@@ -745,23 +601,53 @@ function ApiPreviewScreen({
                   padding: "14px",
                   textAlign: "left",
                   cursor: "pointer",
-                  border: active ? `1.5px solid ${COLORS.ink}` : CARD_STYLE.border,
-                }}
-              >
-                <p style={{ fontSize: "11px", color: COLORS.inkMuted, fontWeight: 700 }}>
+                  border: active
+                    ? `1.5px solid ${COLORS.ink}`
+                    : CARD_STYLE.border,
+                }}>
+                <p
+                  style={{
+                    fontSize: "11px",
+                    color: COLORS.inkMuted,
+                    fontWeight: 700,
+                  }}>
                   {SOURCE_LABEL[source]}
                 </p>
-                <p style={{ fontSize: "13px", color: "#3f3f46", marginTop: "4px" }}>
-                  전체 {counts[source].totalCount}건 중 {counts[source].fetchedCount}건 조회
+                <p
+                  style={{
+                    fontSize: "13px",
+                    color: "#3f3f46",
+                    marginTop: "4px",
+                  }}>
+                  전체 {counts[source].totalCount}건 중{" "}
+                  {counts[source].fetchedCount}건 조회
                 </p>
-                <p style={{ fontSize: "13px", color: COLORS.accentViolet, fontWeight: 700, marginTop: "2px" }}>
+                <p
+                  style={{
+                    fontSize: "13px",
+                    color: COLORS.accentViolet,
+                    fontWeight: 700,
+                    marginTop: "2px",
+                  }}>
                   → 자립준비청년 관련 {counts[source].filteredCount}건
                 </p>
-                <p style={{ fontSize: "13px", color: "#0369a1", fontWeight: 700, marginTop: "2px" }}>
+                <p
+                  style={{
+                    fontSize: "13px",
+                    color: "#0369a1",
+                    fontWeight: 700,
+                    marginTop: "2px",
+                  }}>
                   → 청년 관련 {counts[source].youthCount}건
                 </p>
                 {active && (
-                  <p style={{ fontSize: "11px", color: COLORS.ink, fontWeight: 700, marginTop: "6px" }}>
+                  <p
+                    style={{
+                      fontSize: "11px",
+                      color: COLORS.ink,
+                      fontWeight: 700,
+                      marginTop: "6px",
+                    }}>
                     이 소스만 보는 중 · 다시 누르면 해제
                   </p>
                 )}
@@ -778,8 +664,7 @@ function ApiPreviewScreen({
             border: "1px solid #fca5a5",
             borderRadius: "14px",
             padding: "14px 16px",
-          }}
-        >
+          }}>
           <p style={{ fontSize: "13px", color: "#991b1b" }}>
             실시간 호출에 실패해서 예시 데이터로 보여드려요. ({error})
           </p>
@@ -788,19 +673,28 @@ function ApiPreviewScreen({
 
       {loading && (
         <section style={CARD_STYLE}>
-          <p style={{ fontSize: "14px", color: COLORS.inkMuted }}>불러오는 중이에요...</p>
+          <p style={{ fontSize: "14px", color: COLORS.inkMuted }}>
+            불러오는 중이에요...
+          </p>
         </section>
       )}
 
       {!loading && items && items.length === 0 && (
         <section style={CARD_STYLE}>
-          <p style={{ fontSize: "14px", color: COLORS.inkMuted }}>조건에 맞는 공고가 없어요.</p>
+          <p style={{ fontSize: "14px", color: COLORS.inkMuted }}>
+            조건에 맞는 공고가 없어요.
+          </p>
         </section>
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
         {items?.map((item, index) => (
-          <ApiResultCard key={`${item.source}-${item.servId}-${index}`} item={item} />
+          <ApiResultCard
+            key={`${item.source}-${item.servId}-${index}`}
+            item={item}
+            bookmarked={onToggleBookmark ? bookmarkedKeys.has(bookmarkKey(item.source, item.servId)) : undefined}
+            onToggleBookmark={onToggleBookmark ? () => onToggleBookmark(item.source, item.servId) : undefined}
+          />
         ))}
       </div>
 
@@ -811,7 +705,10 @@ function ApiPreviewScreen({
   );
 }
 
-const SOURCE_BADGE_COLOR: Record<WelfareSource, { background: string; color: string }> = {
+const SOURCE_BADGE_COLOR: Record<
+  WelfareSource,
+  { background: string; color: string }
+> = {
   central: { background: "#eef2ff", color: "#3730a3" },
   local: { background: "#ecfeff", color: "#155e75" },
   gov24: { background: "#f0fdf4", color: "#166534" },
@@ -822,43 +719,85 @@ const SOURCE_BADGE_COLOR: Record<WelfareSource, { background: string; color: str
   youthCenter: { background: "#fdf2f8", color: "#a21caf" },
 };
 
-function ApiResultCard({ item }: { item: WelfareItem }) {
+function ApiResultCard({
+  item,
+  bookmarked,
+  onToggleBookmark,
+}: {
+  item: WelfareItem;
+  bookmarked?: boolean;
+  onToggleBookmark?: () => void;
+}) {
   return (
     <section style={CARD_STYLE}>
-      <span style={{ ...badgeStyle, ...SOURCE_BADGE_COLOR[item.source] }}>
-        {SOURCE_LABEL[item.source]}
-      </span>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <span style={{ ...badgeStyle, ...SOURCE_BADGE_COLOR[item.source] }}>
+          {SOURCE_LABEL[item.source]}
+        </span>
+        {onToggleBookmark && (
+          <button
+            onClick={onToggleBookmark}
+            aria-label="관심공고 등록"
+            style={{ background: "none", border: "none", fontSize: "20px", lineHeight: 1, color: COLORS.ink, padding: 0 }}
+          >
+            {bookmarked ? "⭐" : "☆"}
+          </button>
+        )}
+      </div>
 
       <div style={{ marginTop: "10px" }}>
-        <p style={{ fontSize: "16px", fontWeight: 800, color: COLORS.ink }}>{item.servNm}</p>
-        <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "2px" }}>
+        <p style={{ fontSize: "16px", fontWeight: 800, color: COLORS.ink }}>
+          {item.servNm}
+        </p>
+        <p
+          style={{
+            fontSize: "12px",
+            color: COLORS.inkMuted,
+            marginTop: "2px",
+          }}>
           {item.org}
           {item.region && ` · ${item.region}`}
         </p>
       </div>
 
-      <p style={{ fontSize: "13px", color: "#3f3f46", marginTop: "10px", lineHeight: 1.6 }}>
+      <p
+        style={{
+          fontSize: "13px",
+          color: "#3f3f46",
+          marginTop: "10px",
+          lineHeight: 1.6,
+        }}>
         {item.servDgst}
       </p>
 
-      <div style={{ marginTop: "12px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+      <div
+        style={{
+          marginTop: "12px",
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "6px",
+        }}>
         {item.themes.map((tag) => (
           <span key={tag} style={badgeStyle}>
             #{tag}
           </span>
         ))}
         {item.lifeStages.map((stage) => (
-          <span key={stage} style={{ ...badgeStyle, background: "#f0fdf4", color: "#166534" }}>
+          <span
+            key={stage}
+            style={{ ...badgeStyle, background: "#f0fdf4", color: "#166534" }}>
             {stage}
           </span>
         ))}
         {item.targetTraits && (
-          <span style={{ ...badgeStyle, background: "#fef3c7", color: "#92400e" }}>
+          <span
+            style={{ ...badgeStyle, background: "#fef3c7", color: "#92400e" }}>
             {item.targetTraits}
           </span>
         )}
         {item.onlineApplicable && (
-          <span style={{ ...badgeStyle, background: "#eff6ff", color: "#1d4ed8" }}>
+          <span
+            style={{ ...badgeStyle, background: "#eff6ff", color: "#1d4ed8" }}>
             🖥 온라인 신청 가능
           </span>
         )}
@@ -872,8 +811,7 @@ function ApiResultCard({ item }: { item: WelfareItem }) {
           gap: "8px",
           fontSize: "12px",
           color: COLORS.inkMuted,
-        }}
-      >
+        }}>
         {item.sprtCycNm && <span>🗓 지원주기 {item.sprtCycNm}</span>}
         {item.srvPvsnNm && <span>💵 {item.srvPvsnNm}</span>}
         {item.deadline && <span>⏰ 신청기한 {item.deadline}</span>}
@@ -885,6 +823,7 @@ function ApiResultCard({ item }: { item: WelfareItem }) {
         href={item.link}
         target="_blank"
         rel="noreferrer"
+        onClick={() => logAnnouncementClick(item.source, item.servId)}
         style={{
           display: "inline-block",
           marginTop: "14px",
@@ -892,8 +831,7 @@ function ApiResultCard({ item }: { item: WelfareItem }) {
           fontWeight: 700,
           color: COLORS.accentViolet,
           textDecoration: "none",
-        }}
-      >
+        }}>
         상세 페이지 바로가기 →
       </a>
     </section>

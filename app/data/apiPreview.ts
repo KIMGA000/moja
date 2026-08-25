@@ -50,6 +50,15 @@ export type WelfareItem = {
   link: string;
 };
 
+// DB(announcements_all)에서 읽어올 때는 raw_data(WelfareItem)에 classify.ts가 저장 시점에
+// 미리 계산해둔 분류 컬럼이 같이 붙어서 온다 — "내 지역만"/"재학생 전용"/"관심분야" 같은 명시적
+// 필터는 이 컬럼 기준으로 걸고, 자격 진단 자체(realMatch.ts)는 지금처럼 원문 텍스트 기준을 유지한다.
+export type AnnouncementRecord = WelfareItem & {
+  regionScope: string | null;
+  requiresEnrolled: boolean;
+  interestCategories: string[];
+};
+
 export const API_SAMPLE_ITEMS: WelfareItem[] = [
   {
     source: "central",
