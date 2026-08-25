@@ -918,13 +918,26 @@ function PersonalStatusCard({ profile, todayIso }: { profile: OnboardingProfile;
   const status = buildPersonalStatus(profile, todayIso);
   if (!status) return null;
   return (
-    <section style={{ ...CARD_STYLE, textAlign: "center", background: COLORS.accentVioletBg, border: "none" }}>
-      <p style={{ fontSize: "12px", color: COLORS.inkMuted, fontWeight: 700 }}>{status.title}</p>
-      <p style={{ fontSize: "32px", fontWeight: 800, color: COLORS.accentViolet, marginTop: "6px" }}>
+    <section style={CARD_STYLE}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <p style={{ fontSize: "12px", color: COLORS.inkMuted, fontWeight: 700 }}>{status.title}</p>
+        <span style={pillBadge("violet")}>D-DAY</span>
+      </div>
+      <p style={{ fontSize: "36px", fontWeight: 800, color: COLORS.accentViolet, marginTop: "10px" }}>
         {status.dday}
       </p>
       {status.detail && (
-        <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>{status.detail}</p>
+        <p
+          style={{
+            fontSize: "12px",
+            color: COLORS.inkMuted,
+            marginTop: "12px",
+            paddingTop: "12px",
+            borderTop: `1px solid ${COLORS.divider}`,
+          }}
+        >
+          {status.detail}
+        </p>
       )}
     </section>
   );
@@ -939,31 +952,60 @@ function PersonalProfileCard({
   profile: OnboardingProfile;
   onEditProfile: () => void;
 }) {
-  const details: string[] = [];
-  if (profile.region) details.push(profile.region);
-  if (profile.currentStatus) details.push(CURRENT_STATUS_LABEL[profile.currentStatus]);
-  for (const category of profile.interestCategories) details.push(INTEREST_CATEGORY_LABEL[category]);
+  const rows: { icon: string; label: string; value: string }[] = [];
+  if (profile.region) rows.push({ icon: "📍", label: "지역", value: profile.region });
+  if (profile.currentStatus) {
+    rows.push({ icon: "💼", label: "현재 상태", value: CURRENT_STATUS_LABEL[profile.currentStatus] });
+  }
+  if (profile.interestCategories.length > 0) {
+    rows.push({
+      icon: "❤️",
+      label: "관심분야",
+      value: profile.interestCategories.map((c) => INTEREST_CATEGORY_LABEL[c]).join(", "),
+    });
+  }
 
   return (
-    <section style={{ ...CARD_STYLE, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-      <div>
-        <p style={{ fontSize: "15px", fontWeight: 800, color: COLORS.ink }}>{nickname}님의 자립 현황</p>
-        {details.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "8px" }}>
-            {details.map((d) => (
-              <span key={d} style={pillBadge("violet")}>
-                {d}
-              </span>
-            ))}
-          </div>
-        )}
+    <section style={CARD_STYLE}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <p style={{ fontSize: "16px", fontWeight: 800, color: COLORS.ink }}>{nickname}님의 자립 현황</p>
+        <button
+          onClick={onEditProfile}
+          style={{ ...pillBadge("neutral"), border: "none", cursor: "pointer" }}
+        >
+          정보 수정
+        </button>
       </div>
-      <button
-        onClick={onEditProfile}
-        style={{ background: "none", border: "none", fontSize: "12px", fontWeight: 700, color: COLORS.inkMuted }}
-      >
-        정보 수정
-      </button>
+      {rows.length > 0 && (
+        <div style={{ marginTop: "16px" }}>
+          {rows.map((row, i) => (
+            <div
+              key={row.label}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                padding: "12px 0",
+                borderTop: i === 0 ? "none" : `1px solid ${COLORS.divider}`,
+              }}
+            >
+              <span style={{ fontSize: "16px" }}>{row.icon}</span>
+              <span
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  color: COLORS.inkMuted,
+                  width: "64px",
+                  flexShrink: 0,
+                }}
+              >
+                {row.label}
+              </span>
+              <span style={{ fontSize: "13px", fontWeight: 700, color: COLORS.ink }}>{row.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -1052,7 +1094,6 @@ function AnnouncementListView({
                 {item.region && ` · ${item.region}`}
               </p>
             </div>
-            <p style={{ fontSize: "13px", color: "#3f3f46", marginTop: "10px", lineHeight: 1.6 }}>{item.servDgst}</p>
             <DescriptionTags tags={item.descriptionTags} />
             {item.deadline && <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>⏰ {item.deadline}</p>}
             <a
@@ -1248,14 +1289,25 @@ export function EligibilityResultScreen({
         </p>
       )}
 
-      <section style={{ ...CARD_STYLE, textAlign: "center" }}>
-        <p style={{ fontSize: "13px", color: COLORS.inkMuted, fontWeight: 700 }}>
-          자격 매칭 결과 (공공데이터 기준 · 주기적으로 갱신)
-        </p>
-        <h2 style={{ fontSize: "26px", fontWeight: 800, color: COLORS.ink, marginTop: "8px" }}>
-          가능성 높은 지원 {summary.eligible.length}개
+      <section style={CARD_STYLE}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <p style={{ fontSize: "13px", color: COLORS.inkMuted, fontWeight: 700 }}>
+            자격 매칭 결과 (공공데이터 기준 · 주기적으로 갱신)
+          </p>
+          <span style={pillBadge("success")}>{summary.eligible.length}개</span>
+        </div>
+        <h2 style={{ fontSize: "26px", fontWeight: 800, color: COLORS.ink, marginTop: "10px" }}>
+          가능성 높은 지원
         </h2>
-        <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>
+        <p
+          style={{
+            fontSize: "12px",
+            color: COLORS.inkMuted,
+            marginTop: "12px",
+            paddingTop: "12px",
+            borderTop: `1px solid ${COLORS.divider}`,
+          }}
+        >
           공고 원문 텍스트에서 조건을 추정한 결과라 확정 판정이 아니에요. 최종 자격은 담당
           자립지원전담기관에서 꼭 다시 확인해주세요.
         </p>
@@ -1447,7 +1499,6 @@ function RealItemCard({
         </p>
       </div>
 
-      <p style={{ fontSize: "13px", color: "#3f3f46", marginTop: "10px", lineHeight: 1.6 }}>{item.servDgst}</p>
       <DescriptionTags tags={item.descriptionTags} />
 
       {item.deadline && <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>⏰ {item.deadline}</p>}
