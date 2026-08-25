@@ -112,7 +112,7 @@ export type AgeInfo = {
   yearsSinceAnchor: number | null;
 };
 
-function addYears(iso: string, years: number): string | null {
+export function addYears(iso: string, years: number): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;

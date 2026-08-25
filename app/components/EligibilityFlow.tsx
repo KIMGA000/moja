@@ -6,6 +6,9 @@ import {
   INTEREST_CATEGORY_LABEL,
   PROGRAMS,
   PROTECTION_END_TYPE_LABEL,
+  addYears,
+  buildAgeInfo,
+  ddayLabel,
   type CurrentStatus,
   type InterestCategory,
   type OnboardingProfile,
@@ -14,6 +17,7 @@ import {
 } from "../data/eligibility";
 import { matchRealItems, type EvaluatedRealItem } from "../data/realMatch";
 import { SOURCE_LABEL, type WelfareItem } from "../data/apiPreview";
+import { logAnnouncementClick } from "../../lib/bookmarks";
 import {
   CARD_STYLE,
   COLORS,
@@ -831,27 +835,121 @@ function groupIneligibleByReason(items: EvaluatedRealItem[]): { label: string; i
     .sort((a, b) => b.items.length - a.items.length);
 }
 
+type PersonalStatus = { title: string; dday: string; detail: string };
+
+// 로그인 여부와 무관하게 온보딩 답변만 있으면 계산 가능 — 로그인하면 이 답변이 계정에
+// 저장돼서 재방문 시에도 계속 같은 요약이 바로 뜨는 것뿐이다.
+function buildPersonalStatus(profile: OnboardingProfile, todayIso: string): PersonalStatus | null {
+  if (!profile.birthDate && !profile.protectionEndDate) return null;
+  const ageInfo = buildAgeInfo(profile, todayIso);
+
+  if (profile.protectionEndType === "CURRENTLY_PROTECTED") {
+    if (!profile.protectionEndDate) return null;
+    return {
+      title: "보호종료 예정까지",
+      dday: ddayLabel(profile.protectionEndDate, todayIso),
+      detail: `보호종료(예정)일: ${profile.protectionEndDate}`,
+    };
+  }
+
+  if (!ageInfo.anchorDate) return null;
+  const fiveYearDate = addYears(ageInfo.anchorDate, 5) ?? undefined;
+  const yearsPassed = ageInfo.yearsSinceAnchor;
+  return {
+    title: "자립준비청년 지원 자격 기준(5년)까지",
+    dday: ddayLabel(fiveYearDate, todayIso),
+    detail:
+      yearsPassed !== null
+        ? `보호종료(또는 만 18세) 후 약 ${yearsPassed.toFixed(1)}년 경과`
+        : "",
+  };
+}
+
+function PersonalStatusCard({ profile, todayIso }: { profile: OnboardingProfile; todayIso: string }) {
+  const status = buildPersonalStatus(profile, todayIso);
+  if (!status) return null;
+  return (
+    <section style={{ ...CARD_STYLE, textAlign: "center", background: COLORS.accentVioletBg, border: "none" }}>
+      <p style={{ fontSize: "12px", color: COLORS.inkMuted, fontWeight: 700 }}>{status.title}</p>
+      <p style={{ fontSize: "32px", fontWeight: 800, color: COLORS.accentViolet, marginTop: "6px" }}>
+        {status.dday}
+      </p>
+      {status.detail && (
+        <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>{status.detail}</p>
+      )}
+    </section>
+  );
+}
+
+function PersonalProfileCard({
+  nickname,
+  profile,
+  onEditProfile,
+}: {
+  nickname: string;
+  profile: OnboardingProfile;
+  onEditProfile: () => void;
+}) {
+  const details: string[] = [];
+  if (profile.region) details.push(profile.region);
+  if (profile.currentStatus) details.push(CURRENT_STATUS_LABEL[profile.currentStatus]);
+  for (const category of profile.interestCategories) details.push(INTEREST_CATEGORY_LABEL[category]);
+
+  return (
+    <section style={{ ...CARD_STYLE, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div>
+        <p style={{ fontSize: "15px", fontWeight: 800, color: COLORS.ink }}>{nickname}님의 자립 현황</p>
+        {details.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "8px" }}>
+            {details.map((d) => (
+              <span key={d} style={pillBadge("violet")}>
+                {d}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <button
+        onClick={onEditProfile}
+        style={{ background: "none", border: "none", fontSize: "12px", fontWeight: 700, color: COLORS.inkMuted }}
+      >
+        정보 수정
+      </button>
+    </section>
+  );
+}
+
 export function EligibilityResultScreen({
   profile,
   todayIso,
   items,
   loading,
   error,
+  nickname,
   onEditProfile,
   onBack,
+  hideFooterActions,
+  bookmarkedKeys,
+  onToggleBookmark,
 }: {
   profile: OnboardingProfile;
   todayIso: string;
   items: WelfareItem[] | null;
   loading: boolean;
   error: string | null;
+  nickname?: string | null;
   onEditProfile: () => void;
   onBack: () => void;
+  hideFooterActions?: boolean;
+  bookmarkedKeys?: Set<string>;
+  onToggleBookmark?: (source: string, sourceId: string) => void;
 }) {
   const summary = useMemo(
     () => (items ? matchRealItems(items, profile, todayIso) : null),
     [items, profile, todayIso]
   );
+  const [showBookmarkedOnly, setShowBookmarkedOnly] = useState(false);
+  const isBookmarked = (source: string, sourceId: string) => bookmarkedKeys?.has(`${source}:${sourceId}`) ?? false;
 
   if (loading || !summary) {
     return (
@@ -870,6 +968,17 @@ export function EligibilityResultScreen({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "22px", animation: "fadeIn 0.3s" }}>
+      {nickname ? (
+        <>
+          <PersonalProfileCard nickname={nickname} profile={profile} onEditProfile={onEditProfile} />
+          <PersonalStatusCard profile={profile} todayIso={todayIso} />
+        </>
+      ) : (
+        <p style={{ fontSize: "12px", color: COLORS.inkMuted, textAlign: "center" }}>
+          💡 로그인하면 이 진단 결과가 저장되고, 보호종료까지 남은 기간 같은 정보도 더 개인화해서 보여드려요.
+        </p>
+      )}
+
       <section style={{ ...CARD_STYLE, textAlign: "center" }}>
         <p style={{ fontSize: "13px", color: COLORS.inkMuted, fontWeight: 700 }}>
           자격 매칭 결과 (공공데이터 기준 · 주기적으로 갱신)
@@ -883,6 +992,24 @@ export function EligibilityResultScreen({
         </p>
       </section>
 
+      {onToggleBookmark && (
+        <button
+          onClick={() => setShowBookmarkedOnly((prev) => !prev)}
+          style={{
+            alignSelf: "flex-start",
+            padding: "8px 14px",
+            borderRadius: "999px",
+            border: `1.5px solid ${showBookmarkedOnly ? COLORS.ink : COLORS.cardBorder}`,
+            background: showBookmarkedOnly ? COLORS.ink : "#ffffff",
+            color: showBookmarkedOnly ? "#ffffff" : COLORS.inkMuted,
+            fontSize: "12px",
+            fontWeight: 700,
+          }}
+        >
+          {showBookmarkedOnly ? "⭐" : "☆"} 관심공고만 보기
+        </button>
+      )}
+
       <section>
         <h3 style={{ fontSize: "14px", fontWeight: 800, color: COLORS.success, marginBottom: "12px" }}>
           가능성 높은 지원 ({summary.eligible.length})
@@ -891,9 +1018,17 @@ export function EligibilityResultScreen({
           {summary.eligible.length === 0 && (
             <p style={{ fontSize: "13px", color: COLORS.onDarkMuted }}>조건에 맞는 지원을 찾지 못했어요.</p>
           )}
-          {summary.eligible.map((item, i) => (
-            <RealItemCard key={`${item.source}-${item.servId}-${i}`} item={item} tone="eligible" />
-          ))}
+          {summary.eligible
+            .filter((item) => !showBookmarkedOnly || isBookmarked(item.source, item.servId))
+            .map((item, i) => (
+              <RealItemCard
+                key={`${item.source}-${item.servId}-${i}`}
+                item={item}
+                tone="eligible"
+                bookmarked={onToggleBookmark ? isBookmarked(item.source, item.servId) : undefined}
+                onToggleBookmark={onToggleBookmark ? () => onToggleBookmark(item.source, item.servId) : undefined}
+              />
+            ))}
         </div>
       </section>
 
@@ -903,9 +1038,17 @@ export function EligibilityResultScreen({
             확인이 필요한 지원 ({summary.uncertain.length})
           </h3>
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-            {summary.uncertain.map((item, i) => (
-              <RealItemCard key={`${item.source}-${item.servId}-${i}`} item={item} tone="uncertain" />
-            ))}
+            {summary.uncertain
+              .filter((item) => !showBookmarkedOnly || isBookmarked(item.source, item.servId))
+              .map((item, i) => (
+                <RealItemCard
+                  key={`${item.source}-${item.servId}-${i}`}
+                  item={item}
+                  tone="uncertain"
+                  bookmarked={onToggleBookmark ? isBookmarked(item.source, item.servId) : undefined}
+                  onToggleBookmark={onToggleBookmark ? () => onToggleBookmark(item.source, item.servId) : undefined}
+                />
+              ))}
           </div>
         </section>
       )}
@@ -941,12 +1084,16 @@ export function EligibilityResultScreen({
         </section>
       )}
 
-      <button onClick={onEditProfile} style={GHOST_BUTTON_ON_DARK}>
-        조건 다시 입력하기
-      </button>
-      <button onClick={onBack} style={{ ...GHOST_BUTTON_ON_DARK, border: "none" }}>
-        처음으로
-      </button>
+      {!hideFooterActions && (
+        <>
+          <button onClick={onEditProfile} style={GHOST_BUTTON_ON_DARK}>
+            조건 다시 입력하기
+          </button>
+          <button onClick={onBack} style={{ ...GHOST_BUTTON_ON_DARK, border: "none" }}>
+            처음으로
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -971,9 +1118,13 @@ function IneligibleItemRow({ item }: { item: EvaluatedRealItem }) {
 function RealItemCard({
   item,
   tone,
+  bookmarked,
+  onToggleBookmark,
 }: {
   item: EvaluatedRealItem;
   tone: "eligible" | "uncertain";
+  bookmarked?: boolean;
+  onToggleBookmark?: () => void;
 }) {
   const toneStyle = {
     eligible: { border: "#bbf7d0", badge: pillBadge("success" as const) },
@@ -982,7 +1133,18 @@ function RealItemCard({
 
   return (
     <section style={{ ...CARD_STYLE, padding: "22px", border: `1px solid ${toneStyle.border}` }}>
-      <span style={pillBadge("violet")}>{SOURCE_LABEL[item.source]}</span>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <span style={pillBadge("violet")}>{SOURCE_LABEL[item.source]}</span>
+        {onToggleBookmark && (
+          <button
+            onClick={onToggleBookmark}
+            aria-label="관심공고 등록"
+            style={{ background: "none", border: "none", fontSize: "20px", lineHeight: 1, color: COLORS.ink, padding: 0 }}
+          >
+            {bookmarked ? "⭐" : "☆"}
+          </button>
+        )}
+      </div>
 
       <div style={{ marginTop: "10px" }}>
         <p style={{ fontSize: "16px", fontWeight: 800, color: COLORS.ink }}>{item.servNm}</p>
@@ -1016,6 +1178,7 @@ function RealItemCard({
         href={item.link}
         target="_blank"
         rel="noreferrer"
+        onClick={() => logAnnouncementClick(item.source, item.servId)}
         style={{
           display: "inline-block",
           marginTop: "12px",

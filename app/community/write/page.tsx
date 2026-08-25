@@ -10,20 +10,25 @@ import {
   describeProtectionTiming,
   type CommunityProfile,
 } from "../../data/communityProfile";
+import { useAuthSession, getNickname } from "../../hooks/useAuthSession";
+import { createPostAsUser } from "../../../lib/communityClient";
 
 export default function WritePostPage() {
   const router = useRouter();
+  const { session } = useAuthSession();
   const [category, setCategory] = useState<Category>("free");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [nickname, setNickname] = useState("");
+  const [postAsSelf, setPostAsSelf] = useState(false);
 
   useEffect(() => {
     setNickname(getOrCreateNickname());
   }, []);
 
   const canSubmit = title.trim() !== "" && body.trim() !== "" && !submitting;
+  const displayName = session && postAsSelf ? getNickname(session) : nickname;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -40,15 +45,23 @@ export default function WritePostPage() {
       }
     }
 
-    const res = await fetch("/api/posts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ category, title, postBody: body, author: nickname, badge }),
-    });
-    const data = await res.json();
-    setSubmitting(false);
-    if (data.post) {
-      router.push(`/community/${data.post.id}`);
+    try {
+      if (session) {
+        // 로그인 상태면 브라우저에서 바로 써야 user_id(auth.uid())가 자동으로 붙어서,
+        // "익명"으로 표시해도 나중에 본인이 수정·삭제할 수 있다.
+        const post = await createPostAsUser({ category, title, body, author: displayName, badge });
+        router.push(`/community/${post.id}`);
+      } else {
+        const res = await fetch("/api/posts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category, title, postBody: body, author: displayName, badge }),
+        });
+        const data = await res.json();
+        if (data.post) router.push(`/community/${data.post.id}`);
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -70,9 +83,42 @@ export default function WritePostPage() {
         </Link>
 
         <h1 style={{ fontSize: "22px", fontWeight: 800, color: COLORS.onDark, marginBottom: "6px" }}>글쓰기</h1>
-        <p style={{ fontSize: "13px", color: COLORS.onDarkMuted, marginBottom: "24px" }}>
-          {nickname ? `"${nickname}"으로 게시돼요.` : ""}
+        <p style={{ fontSize: "13px", color: COLORS.onDarkMuted, marginBottom: session ? "12px" : "24px" }}>
+          {displayName ? `"${displayName}"으로 게시돼요.` : ""}
         </p>
+
+        {session && (
+          <div style={{ display: "flex", gap: "8px", marginBottom: "24px" }}>
+            <button
+              onClick={() => setPostAsSelf(false)}
+              style={{
+                padding: "8px 14px",
+                borderRadius: "999px",
+                border: `1.5px solid ${!postAsSelf ? COLORS.ink : COLORS.cardBorder}`,
+                background: !postAsSelf ? COLORS.ink : "#ffffff",
+                color: !postAsSelf ? "#ffffff" : COLORS.inkMuted,
+                fontSize: "12px",
+                fontWeight: 700,
+              }}
+            >
+              익명으로 쓰기
+            </button>
+            <button
+              onClick={() => setPostAsSelf(true)}
+              style={{
+                padding: "8px 14px",
+                borderRadius: "999px",
+                border: `1.5px solid ${postAsSelf ? COLORS.ink : COLORS.cardBorder}`,
+                background: postAsSelf ? COLORS.ink : "#ffffff",
+                color: postAsSelf ? "#ffffff" : COLORS.inkMuted,
+                fontSize: "12px",
+                fontWeight: 700,
+              }}
+            >
+              {getNickname(session)}(으)로 쓰기
+            </button>
+          </div>
+        )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
           <div>
