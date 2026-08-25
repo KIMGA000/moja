@@ -422,7 +422,7 @@ function Landing({
             color: "#3f3f46",
             listStyle: "none",
           }}>
-          <li>✅ 12개 질문으로 ㅈ자격 판별</li>
+          <li>✅ 12개 질문으로 21개 제도 전부 자격 판별</li>
           <li>✅ 못 받는 지원도 이유와 함께 확인</li>
           <li>✅ 중복수급 충돌 미리 경고</li>
         </ul>
