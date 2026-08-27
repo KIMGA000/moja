@@ -22,8 +22,10 @@ export const COLORS = {
   accentStrong: "#A8430A",
   accentCyan: "#38bdf8",
   accentCyanBg: "#e4f6fe",
-  accentLime: "#caff33",
-  accentLimeText: "#1a2e05",
+  // 예전엔 형광 연두였던 히어로 강조색(홈 배지, 온보딩 진행바, 커뮤니티 배지) — 이제 눈에 띄는
+  // 비비드 오렌지로. accentViolet(칩)보다 훨씬 채도 높고, brandOrange(로고)보다도 밝다.
+  accentLime: "#FF6A00",
+  accentLimeText: "#ffffff",
 
   // 로고 마크(주황 스월 + 크림 배경 타일)용 브랜드 색상 — 헤더 로고에서만 씀
   brandOrange: "#ef5a22",
