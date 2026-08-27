@@ -950,7 +950,7 @@ function PersonalStatusCard({ profile, todayIso }: { profile: OnboardingProfile;
         <p style={{ fontSize: "12px", color: COLORS.inkMuted, fontWeight: 700 }}>{status.title}</p>
         <span style={pillBadge("violet")}>D-DAY</span>
       </div>
-      <p style={{ fontSize: "36px", fontWeight: 800, color: COLORS.accentViolet, marginTop: "10px" }}>
+      <p style={{ fontSize: "36px", fontWeight: 800, color: COLORS.accentStrong, marginTop: "10px" }}>
         {status.dday}
       </p>
       {status.detail && (
