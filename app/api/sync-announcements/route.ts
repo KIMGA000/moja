@@ -75,44 +75,19 @@ async function syncSource(
 
   const table = TABLE_BY_SOURCE[source];
 
-  // 검수 UI가 아직 없어서, 새로 들어오는 공고는 review_status를 'approved'로 바로 노출한다
-  // (라이브 API 미리보기와 같은 신뢰 수준). 다만 이미 존재하는 공고는 review_status를 건드리지
-  // 않아야 나중에 사람이 검수해둔 상태(예: 'rejected')가 재동기화 때마다 초기화되지 않는다.
-  const sourceIds = valid.map((item) => item.servId);
-  const { data: existingRows, error: selectError } = await supabase
-    .from(table)
-    .select("source_id")
-    .in("source_id", sourceIds);
-
-  if (selectError) {
-    return { fetched: rawFetchedCount, matched: candidateItems.length, skipped, upserted: 0, error: selectError.message };
+  // 검수 UI가 아직 없어서, 동기화되는 공고는 신규·기존 구분 없이 매번 review_status를
+  // 'approved'로 채워서 바로 노출한다 (라이브 API 미리보기와 같은 신뢰 수준). 예전엔 "이미
+  // 존재하는 공고는 건드리지 않는다"는 규칙이 있었는데, 그 결과 최초 저장 시점에 이 로직이
+  // 없었던(또는 다른 코드로 저장된) 공고가 pending에 영구히 갇히는 문제가 있었다 — 지금은
+  // 검수 UI가 없어서 어차피 사람이 pending을 approved로 승격시킬 방법이 없으므로, 매번
+  // approved로 덮어써서 이런 정체가 재발하지 않게 한다.
+  const rows = valid.map((item) => ({ ...toRow(item), review_status: "approved" }));
+  const { error } = await supabase.from(table).upsert(rows, { onConflict: "source_id" });
+  if (error) {
+    return { fetched: rawFetchedCount, matched: candidateItems.length, skipped, upserted: 0, error: error.message };
   }
 
-  const existingIds = new Set((existingRows ?? []).map((row) => row.source_id as string));
-  const newItems = valid.filter((item) => !existingIds.has(item.servId));
-  const existingItems = valid.filter((item) => existingIds.has(item.servId));
-
-  let upserted = 0;
-
-  if (newItems.length > 0) {
-    const newRows = newItems.map((item) => ({ ...toRow(item), review_status: "approved" }));
-    const { error } = await supabase.from(table).insert(newRows);
-    if (error) {
-      return { fetched: rawFetchedCount, matched: candidateItems.length, skipped, upserted, error: error.message };
-    }
-    upserted += newRows.length;
-  }
-
-  if (existingItems.length > 0) {
-    const updateRows = existingItems.map(toRow);
-    const { error } = await supabase.from(table).upsert(updateRows, { onConflict: "source_id" });
-    if (error) {
-      return { fetched: rawFetchedCount, matched: candidateItems.length, skipped, upserted, error: error.message };
-    }
-    upserted += updateRows.length;
-  }
-
-  return { fetched: rawFetchedCount, matched: candidateItems.length, skipped, upserted };
+  return { fetched: rawFetchedCount, matched: candidateItems.length, skipped, upserted: rows.length };
 }
 
 // Vercel Cron이 매일 새벽 5시(KST)에 이 라우트를 자동 호출한다 (vercel.json 참고).
