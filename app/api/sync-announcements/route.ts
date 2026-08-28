@@ -19,6 +19,8 @@ import {
 } from "../../../lib/govApis";
 
 export const dynamic = "force-dynamic";
+// AI 요약 호출이 Gemini 무료 티어 분당 한도에 맞춰 쉬어가며 진행되므로, 기본 10초보다 여유를 둔다.
+export const maxDuration = 60;
 
 // 소스별로 별도 테이블에 저장한다 (supabase/schema.sql 참고).
 const TABLE_BY_SOURCE: Record<WelfareSource, string> = {
@@ -32,18 +34,29 @@ const TABLE_BY_SOURCE: Record<WelfareSource, string> = {
   youthCenter: "announcements_youth_center",
 };
 
-// 공고 원문을 자립준비청년이 바로 이해할 수 있는 한 문장으로 풀어 쓴다. Gemini 무료 티어를 쓰므로
-// 사용자 요청마다가 아니라 "동기화 시점에, 내용이 바뀐 공고만" 호출해서 호출 횟수를 낮게 유지한다
-// (syncSource의 재사용 로직 참고). 실패해도 동기화 자체는 계속 진행되도록 null을 반환한다.
-//
-// 무료 티어는 하루/분당 호출 한도가 있다. 한도에 걸리면(429) 이번 동기화 실행 동안은 더 이상
-// 호출을 시도하지 않는다 — 어차피 다 실패할 호출을 하나씩 재시도하며 시간을 낭비하지 않기 위해서.
-// 다음 동기화(다음 날 크론)에서 한도가 풀렸으면 자동으로 다시 시도된다.
+// 공고 원문을 자립준비청년이 바로 이해할 수 있는 한 문장으로 풀어 쓴다. Gemini 무료 티어(요금이
+// 절대 청구되지 않는 키)만 쓰므로, 절대 이 한도를 넘기지 않도록 세 겹으로 안전장치를 둔다:
+//   1) 매 동기화 실행마다 최대 GEMINI_MAX_CALLS_PER_RUN번만 호출 (Google이 몇 개를 허용하든 무관하게
+//      우리 쪽에서 먼저 멈춘다)
+//   2) 호출 사이에 GEMINI_MIN_INTERVAL_MS만큼 쉬어서 분당 호출 한도(RPM)를 넘지 않는다
+//   3) 그래도 429/403(한도 초과)이 오면 이번 실행에서는 더 이상 시도하지 않는다
+// "gemini-3.5-flash-lite"는 무료 티어 일일 한도(RPD)가 넉넉한 편이라 이 모델을 쓴다 — 한도가
+// 작은 모델(예: gemini-3.6-flash)로 바꾸지 말 것. 안 바뀐 공고는 재생성 안 하는 재사용 로직
+// (syncSource)과 합쳐지면 실사용 트래픽으로는 무료 한도에 닿을 일이 없다.
+const GEMINI_MODEL = "gemini-3.5-flash-lite";
+const GEMINI_MAX_CALLS_PER_RUN = 8;
+const GEMINI_MIN_INTERVAL_MS = 4200; // 분당 15회 한도 기준으로 여유 있게
+
 let geminiQuotaExhausted = false;
+let geminiCallsThisRun = 0;
 
 async function generatePlainSummary(servNm: string, servDgst: string): Promise<string | null> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || geminiQuotaExhausted) return null;
+  if (geminiCallsThisRun >= GEMINI_MAX_CALLS_PER_RUN) return null;
+
+  geminiCallsThisRun++;
+  if (geminiCallsThisRun > 1) await sleep(GEMINI_MIN_INTERVAL_MS);
 
   const prompt =
     "다음은 자립준비청년(보육원·위탁가정 등에서 자란 뒤 보호가 끝난 청년) 지원 공고문입니다. " +
@@ -53,7 +66,7 @@ async function generatePlainSummary(servNm: string, servDgst: string): Promise<s
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -144,7 +157,6 @@ async function syncSource(
     let plainSummary = existing && existing.serv_dgst === (item.servDgst || null) ? existing.plain_summary : null;
     if (!plainSummary && item.servDgst) {
       plainSummary = await generatePlainSummary(item.servNm, item.servDgst);
-      if (process.env.GEMINI_API_KEY) await sleep(250); // 무료 티어 분당 호출 한도 여유 두기
     }
     rows.push({ ...toRow(item), plain_summary: plainSummary, review_status: "approved" });
   }
@@ -179,8 +191,10 @@ export async function GET(req: NextRequest) {
   }
 
   // 서버리스 인스턴스가 재사용(warm start)될 수 있어서, 지난 실행에서 한도에 걸렸어도
-  // 이번 실행에서는 다시 시도해본다 (하루 지나 한도가 풀렸을 수 있으므로).
+  // 이번 실행에서는 다시 시도해본다 (하루 지나 한도가 풀렸을 수 있으므로). 호출 횟수 카운터도
+  // 실행마다 초기화해야 이번 실행의 상한(GEMINI_MAX_CALLS_PER_RUN)이 매번 새로 적용된다.
   geminiQuotaExhausted = false;
+  geminiCallsThisRun = 0;
 
   const apiKey = process.env.WELFARE_API_KEY;
   if (!apiKey) {
