@@ -566,7 +566,7 @@ const END_AGE_CONFIG: Record<Exclude<ProtectionEndType, "AGE18_END">, { question
   },
   CURRENTLY_PROTECTED: {
     question: "몇 살까지 보호받을 예정인가요?",
-    ages: Array.from({ length: 9 }, (_, i) => 18 + i), // 18~26세
+    ages: Array.from({ length: 8 }, (_, i) => 18 + i), // 연장보호 상한(만 25세)과 맞춰 18~25세
   },
 };
 
