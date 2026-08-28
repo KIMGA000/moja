@@ -117,9 +117,6 @@ lib/
 supabase/
   schema.sql      # DB 스키마 전체
 vercel.json       # 매일 자동 동기화 크론 설정
-docs/
-  handoff-*.md    # 진행 상황 인계 문서 — 새로 합류했다면 가장 최근 파일부터 읽기
-  announcement-review-guide.md  # 공고 데이터 검수 가이드
 ```
 
 ## 🌿 브랜치
@@ -127,12 +124,6 @@ docs/
 - `main`: 지금 이 브랜치 — 소개·배포 기준
 - `dev`: 실제 작업 브랜치
 - `release/*`: 배포할 때마다 그 시점 커밋을 가리키는 스냅샷 브랜치
-
-## 📚 더 자세한 내용
-
-지금까지의 진행 상황, 의도적으로 보류한 기능, 다음 할 일은 `dev` 브랜치의
-[docs/handoff-2026-08-25.md](https://github.com/KIMGA000/moja/blob/dev/docs/handoff-2026-08-25.md)에
-정리되어 있습니다 (가장 최신 인계 문서 — `main`에는 없고 `dev`에만 있어요).
 
 ---
 
