@@ -58,10 +58,6 @@ export type AnnouncementRecord = WelfareItem & {
   requiresEnrolled: boolean;
   interestCategories: string[];
   descriptionTags: string[];
-  // 공고 원문(servDgst)을 AI(Gemini)가 한 문장으로 쉽게 풀어 쓴 요약. 동기화 시점에 한 번만
-  // 생성해서 DB에 저장해두고 재사용한다 (app/api/sync-announcements/route.ts 참고).
-  // 생성 실패나 원문 없음 등으로 아직 없을 수 있어서 null 허용.
-  plainSummary: string | null;
 };
 
 export const API_SAMPLE_ITEMS: WelfareItem[] = [

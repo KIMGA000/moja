@@ -37,6 +37,8 @@ export const COLORS = {
   // 쓰지 않기 위해 뉴트럴 브라운/그레이로 교체
   success: "#2D2926",
   successBg: "#F5F4F2",
+  // "가능성 높은 지원" 헤딩 전용 연두색 — success와 별개 토큰이라 다른 곳(배지 등)엔 영향 없음
+  positiveHeading: "#4D7C0F",
   warning: "#b45309",
   warningBg: "#fef3c7",
   neutral: "#78716c",

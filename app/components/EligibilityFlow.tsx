@@ -1099,18 +1099,6 @@ function DescriptionTags({ tags }: { tags: string[] }) {
   );
 }
 
-function PlainSummary({ text }: { text: string | null | undefined }) {
-  if (!text) return null;
-  return (
-    <p style={{ fontSize: "13px", color: COLORS.ink, marginTop: "8px", lineHeight: 1.5 }}>
-      <span style={{ ...pillBadge("lime"), fontSize: "10px", padding: "2px 7px", marginRight: "6px", verticalAlign: "1px" }}>
-        AI 요약
-      </span>
-      {text}
-    </p>
-  );
-}
-
 // "매칭 결과"(자격 판정) 말고, DB에 동기화된 공고를 조건 판정 없이 훑어보는 탭들이 공통으로 쓰는
 // 카드 목록. 지역/현재상태/관심분야는 명시적 필터라서 자격 판정(realMatch.ts)과 달리
 // "안 맞으면 숨김"이지 "그래서 못 받는다"는 판정이 아니다 — 그냥 찾아보기 편하라고 거르는 것뿐.
@@ -1159,7 +1147,6 @@ function AnnouncementListView({
               </p>
             </div>
             <DescriptionTags tags={item.descriptionTags} />
-            <PlainSummary text={item.plainSummary} />
             {item.deadline && <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>⏰ {formatDeadlineDisplay(item.deadline)}</p>}
             <a
               href={item.link}
@@ -1425,7 +1412,7 @@ export function EligibilityResultScreen({
       {(!nickname || viewTab === "matched") && (
         <>
       <section>
-        <h3 style={{ fontSize: "14px", fontWeight: 800, color: COLORS.success, marginBottom: "12px" }}>
+        <h3 style={{ fontSize: "14px", fontWeight: 800, color: COLORS.positiveHeading, marginBottom: "12px" }}>
           가능성 높은 지원 ({summary.eligible.length})
         </h3>
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -1549,13 +1536,15 @@ function RealItemCard({
   bookmarked?: boolean;
   onToggleBookmark?: () => void;
 }) {
+  // 테두리 색은 tone과 무관하게 다른 공고 카드들과 통일한다(CARD_STYLE 기본값) — 긍정/판단 필요
+  // 신호는 위 헤딩 색과 배지로만 표시하고, 카드 자체는 시각적으로 균일하게 유지한다.
   const toneStyle = {
-    eligible: { border: "#bbf7d0", badge: pillBadge("success" as const) },
-    uncertain: { border: "#fde68a", badge: pillBadge("warning" as const) },
+    eligible: { badge: pillBadge("success" as const) },
+    uncertain: { badge: pillBadge("warning" as const) },
   }[tone];
 
   return (
-    <section style={{ ...CARD_STYLE, padding: "22px", border: `1px solid ${toneStyle.border}` }}>
+    <section style={{ ...CARD_STYLE, padding: "22px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <span style={pillBadge("violet")}>{SOURCE_LABEL[item.source]}</span>
         {onToggleBookmark && (
@@ -1578,7 +1567,6 @@ function RealItemCard({
       </div>
 
       <DescriptionTags tags={item.descriptionTags} />
-      <PlainSummary text={item.plainSummary} />
 
       {item.deadline && <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>⏰ {formatDeadlineDisplay(item.deadline)}</p>}
 
