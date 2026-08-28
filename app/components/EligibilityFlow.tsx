@@ -558,11 +558,11 @@ const END_AGE_CONFIG: Record<Exclude<ProtectionEndType, "AGE18_END">, { question
   EARLY_END: { question: "몇 살에 조기 보호종료됐나요?", ages: [15, 16, 17] },
   EXTENDED_END: {
     question: "몇 살까지 연장보호를 받았나요?",
-    ages: [19, 20, 21, 22, 23, 24, 25, 26],
+    ages: [19, 20, 21, 22, 23, 24, 25], // 연장보호는 만 25세까지
   },
   REPROTECTED_END: {
     question: "재보호 후 몇 살에 다시 보호가 종료됐나요?",
-    ages: Array.from({ length: 12 }, (_, i) => 15 + i), // 15~26세
+    ages: Array.from({ length: 10 }, (_, i) => 15 + i), // 재보호는 만 24세까지 (15~24세)
   },
   CURRENTLY_PROTECTED: {
     question: "몇 살까지 보호받을 예정인가요?",
