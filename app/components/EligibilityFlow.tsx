@@ -1538,6 +1538,139 @@ function IneligibleItemRow({ item }: { item: EvaluatedRealItem }) {
   );
 }
 
+// [실험] DB에 실제로 저장된 원문(servDgst/targetTraits/srvPvsnNm)에서 서류 관련 키워드를 찾아본다.
+// 확인해보니 107건 중 2건만 걸릴 만큼 원문 자체에 서류 정보가 거의 없다 — 그래서 "찾았을 때만
+// 보여주고, 없으면 없다고 솔직히 말하는" 방식으로 설계했다. 실제 기능으로 만들 땐 이 목록을
+// classify.ts로 옮기고 description_tags와 같은 방식(저장 시점에 미리 계산)으로 바꾸면 된다.
+const DOC_HINT_KEYWORDS = [
+  "가족관계증명서", "주민등록등본", "주민등록초본", "통장사본", "통장 사본", "신분증",
+  "재직증명서", "졸업증명서", "보호종료확인서", "소득증명원", "건강보험", "제출서류",
+  "구비서류", "첨부서류", "신청서식", "재학증명서", "수급자증명서",
+];
+
+function findDocHints(item: AnnouncementRecord): string[] {
+  const haystack = `${item.servDgst ?? ""} ${item.targetTraits ?? ""} ${item.srvPvsnNm ?? ""}`;
+  const found = new Set<string>();
+  for (const kw of DOC_HINT_KEYWORDS) {
+    if (haystack.includes(kw)) found.add(kw.replace(" ", ""));
+  }
+  return [...found];
+}
+
+function AnnouncementDetailModal({ item, onClose }: { item: EvaluatedRealItem<AnnouncementRecord>; onClose: () => void }) {
+  const docHints = findDocHints(item);
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(45, 41, 38, 0.55)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 100,
+        padding: "20px",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: COLORS.card ?? "#ffffff",
+          borderRadius: "16px",
+          padding: "24px",
+          maxWidth: "440px",
+          width: "100%",
+          maxHeight: "80vh",
+          overflowY: "auto",
+          boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
+          <div>
+            <p style={{ fontSize: "11px", fontWeight: 800, color: COLORS.accentViolet }}>공고 상세</p>
+            <p style={{ fontSize: "16px", fontWeight: 800, color: COLORS.ink, marginTop: "4px" }}>{item.servNm}</p>
+            <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "2px" }}>
+              {item.org}
+              {item.region && ` · ${item.region}`}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="닫기"
+            style={{ background: "none", border: "none", fontSize: "20px", color: COLORS.inkMuted, padding: 0, lineHeight: 1 }}
+          >
+            ×
+          </button>
+        </div>
+
+        {item.servDgst && (
+          <p style={{ fontSize: "13px", color: COLORS.ink, marginTop: "16px", lineHeight: 1.6 }}>{item.servDgst}</p>
+        )}
+        {item.srvPvsnNm && (
+          <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>지원 유형: {item.srvPvsnNm}</p>
+        )}
+        {item.deadline && (
+          <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "4px" }}>⏰ {formatDeadlineDisplay(item.deadline)}</p>
+        )}
+        {item.contact && <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "4px" }}>문의처: {item.contact}</p>}
+
+        <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: `1px solid ${COLORS.divider ?? "#eee"}` }}>
+          <p style={{ fontSize: "11px", fontWeight: 800, color: COLORS.accentViolet }}>필요서류</p>
+          {docHints.length > 0 ? (
+            <>
+              <ul style={{ marginTop: "10px", padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: "8px" }}>
+                {docHints.map((doc) => (
+                  <li
+                    key={doc}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      fontSize: "14px",
+                      color: COLORS.ink,
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      background: COLORS.divider ? `${COLORS.divider}55` : "#f4f4f2",
+                    }}
+                  >
+                    <span>☐</span>
+                    {doc}
+                  </li>
+                ))}
+              </ul>
+              <p style={{ fontSize: "11px", color: COLORS.inkMuted, marginTop: "8px" }}>
+                공고 원문에서 찾은 단어라 실제 제출서류 목록과 다를 수 있어요. 정확한 목록은 공식 안내 페이지에서 확인해주세요.
+              </p>
+            </>
+          ) : (
+            <p style={{ fontSize: "13px", color: COLORS.inkMuted, marginTop: "10px" }}>
+              이 공고 원문에는 서류 관련 안내가 없어요. 공식 안내 페이지에서 확인해주세요.
+            </p>
+          )}
+        </div>
+
+        <a
+          href={item.link}
+          target="_blank"
+          rel="noreferrer"
+          onClick={() => logAnnouncementClick(item.source, item.servId)}
+          style={{
+            display: "inline-block",
+            marginTop: "16px",
+            fontSize: "13px",
+            fontWeight: 700,
+            color: COLORS.accentViolet,
+            textDecoration: "none",
+          }}
+        >
+          공식 안내 페이지 바로가기 →
+        </a>
+      </div>
+    </div>
+  );
+}
+
 function RealItemCard({
   item,
   tone,
@@ -1549,6 +1682,7 @@ function RealItemCard({
   bookmarked?: boolean;
   onToggleBookmark?: () => void;
 }) {
+  const [showDetail, setShowDetail] = useState(false);
   const toneStyle = {
     eligible: { border: "#bbf7d0", badge: pillBadge("success" as const) },
     uncertain: { border: "#fde68a", badge: pillBadge("warning" as const) },
@@ -1598,22 +1732,38 @@ function RealItemCard({
         </p>
       ))}
 
-      <a
-        href={item.link}
-        target="_blank"
-        rel="noreferrer"
-        onClick={() => logAnnouncementClick(item.source, item.servId)}
-        style={{
-          display: "inline-block",
-          marginTop: "12px",
-          fontSize: "13px",
-          fontWeight: 700,
-          color: COLORS.accentViolet,
-          textDecoration: "none",
-        }}
-      >
-        공식 안내 페이지 바로가기 →
-      </a>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px" }}>
+        <a
+          href={item.link}
+          target="_blank"
+          rel="noreferrer"
+          onClick={() => logAnnouncementClick(item.source, item.servId)}
+          style={{
+            fontSize: "13px",
+            fontWeight: 700,
+            color: COLORS.accentViolet,
+            textDecoration: "none",
+          }}
+        >
+          공식 안내 페이지 바로가기 →
+        </a>
+        <button
+          onClick={() => setShowDetail(true)}
+          style={{
+            background: "none",
+            border: "none",
+            fontSize: "11px",
+            fontWeight: 700,
+            color: COLORS.inkMuted,
+            padding: 0,
+            cursor: "pointer",
+          }}
+        >
+          상세보기 ↗
+        </button>
+      </div>
+
+      {showDetail && <AnnouncementDetailModal item={item} onClose={() => setShowDetail(false)} />}
     </section>
   );
 }
