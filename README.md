@@ -35,17 +35,9 @@ lib/
   supabase.ts     # Supabase 클라이언트
 supabase/
   schema.sql      # DB 스키마 (공고 저장·검수용 8테이블 + 커뮤니티 2테이블)
-docs/
-  handoff-*.md    # 진행 상황 인계 문서 — 새로 합류했다면 가장 최근 파일부터 읽기
-  announcement-review-guide.md  # 공고 데이터 검수 가이드
 ```
 
 ## 브랜치
 
 - `main`: 팀 프로젝트 시작 시 받은 스타터 템플릿 원본 (건드리지 않음)
 - `dev`: 실제 작업 브랜치. 여기서 계속 개발합니다.
-
-## 더 자세한 내용
-
-지금까지의 진행 상황, 의도적으로 보류한 기능, 다음 할 일은
-[docs/handoff-2026-08-21.md](docs/handoff-2026-08-21.md)에 정리되어 있습니다.
