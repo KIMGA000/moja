@@ -241,7 +241,7 @@ export async function GET(req: NextRequest) {
     { fetched: number; matched: number; skipped: number; upserted: number; error?: string }
   > = {};
 
-  // 7개 소스 전부 "자립준비청년 관련" 텍스트 필터를 거친 것만 저장한다 (노이즈는 저장 전에 거름).
+  // 8개 소스 전부 "자립준비청년 관련" 텍스트 필터를 거친 것만 저장한다 (노이즈는 저장 전에 거름).
   if (centralResult.status === "fulfilled") {
     const raw = centralResult.value.items;
     const filtered = raw.filter(isAboutCareLeavers);
