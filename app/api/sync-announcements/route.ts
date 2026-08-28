@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { WelfareItem, WelfareSource } from "../../data/apiPreview";
-import { classifyItem } from "../../data/classify";
+import { classifyItem, type AnnouncementClassification } from "../../data/classify";
 import { createSupabaseAdminClient } from "../../../lib/supabase";
 import {
   CENTRAL_API_BASE,
@@ -98,8 +98,11 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function toRow(item: WelfareItem) {
-  const c = classifyItem(item);
+// classification을 안 넘기면 매번 새로 규칙 기반 분류를 계산한다(기본 동작). 이미 사람이
+// 검수한 공고(reviewed_at 있음)는 호출하는 쪽에서 DB에 저장된 값을 그대로 넘겨서 재계산으로
+// 검수 결과가 덮어써지지 않게 한다 — syncSource의 isReviewed 분기 참고.
+function toRow(item: WelfareItem, classification: AnnouncementClassification = classifyItem(item)) {
+  const c = classification;
   return {
     source_id: item.servId,
     serv_nm: item.servNm,
@@ -122,8 +125,8 @@ function toRow(item: WelfareItem) {
     protection_end_types_applicable: c.protectionEndTypesApplicable,
     description_tags: c.descriptionTags,
     fetched_at: new Date().toISOString(),
-    // review_status·duplicate_of_*·reviewed_by 등은 일부러 안 넣는다 —
-    // upsert 시 이 컬럼들은 건드리지 않아야 사람이 검수해둔 상태가 재동기화 때마다 초기화되지 않는다.
+    // duplicate_of_*·reviewed_by·reviewed_at·review_note는 일부러 안 넣는다 —
+    // upsert 시 이 컬럼들은 건드리지 않아야 사람이 검수해둔 기록이 재동기화 때마다 초기화되지 않는다.
   };
 }
 
@@ -143,15 +146,44 @@ async function syncSource(
 
   // AI 쉬운 요약(plain_summary)은 원문이 바뀌지 않았으면 재생성하지 않는다 — 무료 티어 호출
   // 횟수를 아끼고, "비용이 사용자 수에 비례하면 안 된다"는 원칙을 동기화 빈도에도 적용한 것.
+  //
+  // reviewed_at도 같이 가져온다: 아직 검수 인력이 없어서 지금은 아무도 검수를 안 하고 있지만,
+  // 나중에 사람이 Supabase 테이블에서 직접 reviewed_by/reviewed_at/review_status를 채워넣기
+  // 시작하면(검수 UI 없이도 가능) 그 결정을 이 동기화 로직이 존중해야 한다 — 아니면 다음날
+  // 자동으로 덮어써져서 검수한 의미가 없어진다. 지금은 reviewed_at이 항상 비어있으니 동작은
+  // 예전과 완전히 같고(전부 재계산·자동승인), 나중에 검수를 시작하는 순간부터 바로 적용된다.
   const { data: existingRows } = await supabase
     .from(table)
-    .select("source_id, serv_dgst, plain_summary")
+    .select(
+      "source_id, serv_dgst, plain_summary, reviewed_at, review_status, mentions_care_leaver, " +
+        "mentions_youth, protection_years_limit, requires_enrolled, requires_no_home, " +
+        "requires_basic_livelihood, requires_already_ended, region_scope, interest_categories, " +
+        "protection_end_types_applicable, description_tags"
+    )
     .in(
       "source_id",
       valid.map((item) => item.servId)
     );
+  type ExistingRow = {
+    source_id: string;
+    serv_dgst: string | null;
+    plain_summary: string | null;
+    reviewed_at: string | null;
+    review_status: string;
+    mentions_care_leaver: boolean;
+    mentions_youth: boolean;
+    protection_years_limit: number | null;
+    requires_enrolled: boolean;
+    requires_no_home: boolean;
+    requires_basic_livelihood: boolean;
+    requires_already_ended: boolean;
+    region_scope: string | null;
+    interest_categories: AnnouncementClassification["interestCategories"];
+    protection_end_types_applicable: AnnouncementClassification["protectionEndTypesApplicable"];
+    description_tags: string[];
+  };
   const existingBySourceId = new Map(
-    (existingRows ?? []).map((r) => [r.source_id as string, r as { serv_dgst: string | null; plain_summary: string | null }])
+    ((existingRows ?? []) as unknown as ExistingRow[]).map((r) => [r.source_id, r])
   );
 
   const rows = [];
@@ -161,15 +193,35 @@ async function syncSource(
     if (!plainSummary && item.servDgst) {
       plainSummary = await generatePlainSummary(item.servNm, item.servDgst);
     }
-    rows.push({ ...toRow(item), plain_summary: plainSummary, review_status: "approved" });
+
+    const isReviewed = existing?.reviewed_at != null;
+    if (isReviewed && existing) {
+      // 검수된 공고: 사람이 정한 분류·승인 상태를 그대로 유지, 재계산하지 않는다.
+      const preservedClassification: AnnouncementClassification = {
+        mentionsCareLeaver: existing.mentions_care_leaver,
+        mentionsYouth: existing.mentions_youth,
+        protectionYearsLimit: existing.protection_years_limit,
+        requiresEnrolled: existing.requires_enrolled,
+        requiresNoHome: existing.requires_no_home,
+        requiresBasicLivelihood: existing.requires_basic_livelihood,
+        requiresAlreadyEnded: existing.requires_already_ended,
+        regionScope: existing.region_scope,
+        interestCategories: existing.interest_categories,
+        protectionEndTypesApplicable: existing.protection_end_types_applicable,
+        descriptionTags: existing.description_tags,
+      };
+      rows.push({
+        ...toRow(item, preservedClassification),
+        plain_summary: plainSummary,
+        review_status: existing.review_status,
+      });
+    } else {
+      // 아직 검수 안 된(reviewed_at 없는) 공고: 지금처럼 매번 새로 규칙 기반 분류하고
+      // 자동 승인한다 — 검수 인력이 아직 없어서, 이게 지금 단계에서는 맞는 기본값이다.
+      rows.push({ ...toRow(item), plain_summary: plainSummary, review_status: "approved" });
+    }
   }
 
-  // 검수 UI가 아직 없어서, 동기화되는 공고는 신규·기존 구분 없이 매번 review_status를
-  // 'approved'로 채워서 바로 노출한다 (라이브 API 미리보기와 같은 신뢰 수준). 예전엔 "이미
-  // 존재하는 공고는 건드리지 않는다"는 규칙이 있었는데, 그 결과 최초 저장 시점에 이 로직이
-  // 없었던(또는 다른 코드로 저장된) 공고가 pending에 영구히 갇히는 문제가 있었다 — 지금은
-  // 검수 UI가 없어서 어차피 사람이 pending을 approved로 승격시킬 방법이 없으므로, 매번
-  // approved로 덮어써서 이런 정체가 재발하지 않게 한다.
   const { error } = await supabase.from(table).upsert(rows, { onConflict: "source_id" });
   if (error) {
     return { fetched: rawFetchedCount, matched: candidateItems.length, skipped, upserted: 0, error: error.message };
