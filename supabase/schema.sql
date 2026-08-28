@@ -132,6 +132,11 @@ create or replace view announcements_all as
   union all
   select 'youthCenter' as source, * from announcements_youth_center;
 
+-- security_invoker 없이는 뷰가 정의자(뷰 생성자) 권한으로 실행돼서 개별 테이블의
+-- RLS(승인된 공고만 노출)를 우회한다. anon 키로 이 뷰를 직접 조회하면 pending 공고까지
+-- 새어나가던 문제라서, 조회자(anon/authenticated) 권한으로 실행되도록 강제한다.
+alter view announcements_all set (security_invoker = on);
+
 -- =========================================================================
 -- 참고용 쿼리 (검수 시 활용)
 -- =========================================================================
