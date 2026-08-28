@@ -76,6 +76,17 @@ begin
     execute format(
       'alter table %I add column if not exists description_tags text[] not null default ''{}''', t
     );
+    -- 공고 원문을 AI(Gemini)가 한 문장으로 쉽게 풀어 쓴 요약. 동기화 때 servDgst가 안 바뀐 공고는
+    -- 재생성하지 않고 이 값을 그대로 재사용한다 (app/api/sync-announcements/route.ts 참고).
+    execute format(
+      'alter table %I add column if not exists plain_summary text', t
+    );
+    -- 접수기간이 이미 지난 공고는 기본적으로 화면에서 숨긴다(app/api/announcements/route.ts).
+    -- 검수자가 "그래도 보여줘야 한다"고 판단하면 이 값을 true로 바꿔서 숨김을 해제할 수 있다
+    -- (아직 검수 UI가 없어서 지금은 Supabase SQL Editor에서 직접 바꾼다).
+    execute format(
+      'alter table %I add column if not exists force_visible boolean not null default false', t
+    );
   end loop;
 end $$;
 

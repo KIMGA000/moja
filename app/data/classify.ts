@@ -153,6 +153,49 @@ export function isAlwaysOpenAnnouncement(deadline: string | null | undefined): b
   return ALWAYS_OPEN_KEYWORDS.some((kw) => trimmed.includes(kw));
 }
 
+// deadline 원문에 섞여 나오는 날짜를 전부 찾아낸다. 소스마다 "20260201"(구분자 없음),
+// "2026.02.01", "2026-02-01" 세 가지 형식이 뒤섞여 있어서 셋 다 인식한다. 못 알아본 형식(자유
+// 텍스트 등)은 빈 배열을 반환하고, 호출하는 쪽에서 원문을 그대로 보여주거나 숨기지 않는다.
+function extractDates(text: string): Date[] {
+  const re = /(\d{4})[.\-](\d{1,2})[.\-](\d{1,2})|(\d{4})(\d{2})(\d{2})/g;
+  const dates: Date[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    const y = Number(m[1] ?? m[4]);
+    const mo = Number(m[2] ?? m[5]);
+    const d = Number(m[3] ?? m[6]);
+    if (y > 1900 && mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+      dates.push(new Date(y, mo - 1, d));
+    }
+  }
+  return dates;
+}
+
+// "20260201 ~ 20260227" 같은 원문을 "2026년 2월 1일 ~ 2026년 2월 27일"처럼 사람이 읽기 좋게
+// 바꾼다. "상시" 등 텍스트나 못 알아본 형식은 원문을 그대로 돌려준다.
+export function formatDeadlineDisplay(deadline: string | null | undefined): string {
+  const trimmed = deadline?.trim();
+  if (!trimmed) return "";
+  if (isAlwaysOpenAnnouncement(trimmed)) return trimmed;
+  const dates = extractDates(trimmed);
+  if (dates.length === 0) return trimmed;
+  const fmt = (d: Date) => `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
+  if (dates.length === 1) return `${fmt(dates[0])}까지`;
+  return `${fmt(dates[0])} ~ ${fmt(dates[dates.length - 1])}`;
+}
+
+// 접수기간의 마감일이 이미 지났는지. 날짜를 못 알아보면(자유 텍스트 등) 확신이 없으니 지나지
+// 않은 것으로 본다 — 애매하면 숨기지 않는 쪽이 안전하다.
+export function isExpiredDeadline(deadline: string | null | undefined, today: Date = new Date()): boolean {
+  const trimmed = deadline?.trim();
+  if (!trimmed || isAlwaysOpenAnnouncement(trimmed)) return false;
+  const dates = extractDates(trimmed);
+  if (dates.length === 0) return false;
+  const end = dates[dates.length - 1];
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return end < todayMidnight;
+}
+
 function extractInterestCategories(item: WelfareItem): InterestCategory[] {
   const categories = new Set<InterestCategory>();
   for (const theme of item.themes) {

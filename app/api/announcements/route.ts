@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { AnnouncementRecord, WelfareItem } from "../../data/apiPreview";
+import { isExpiredDeadline } from "../../data/classify";
 import { createSupabaseAdminClient } from "../../../lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +25,9 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("announcements_all")
-    .select("raw_data, region_scope, requires_enrolled, interest_categories, description_tags, fetched_at")
+    .select(
+      "raw_data, region_scope, requires_enrolled, interest_categories, description_tags, plain_summary, force_visible, fetched_at"
+    )
     .eq("review_status", "approved")
     .gte("fetched_at", staleBefore);
 
@@ -36,12 +39,16 @@ export async function GET() {
     .map((row) => {
       const raw = row.raw_data as WelfareItem | null;
       if (!raw) return null;
+      // 접수기간이 이미 끝난 공고는 기본적으로 숨긴다. 검수자가 force_visible을 켜두면
+      // (아직 검수 UI가 없어 지금은 SQL Editor로 직접) 그래도 계속 보여준다.
+      if (!row.force_visible && isExpiredDeadline(raw.deadline)) return null;
       return {
         ...raw,
         regionScope: (row.region_scope as string | null) ?? null,
         requiresEnrolled: Boolean(row.requires_enrolled),
         interestCategories: (row.interest_categories as string[] | null) ?? [],
         descriptionTags: (row.description_tags as string[] | null) ?? [],
+        plainSummary: (row.plain_summary as string | null) ?? null,
       };
     })
     .filter((item): item is AnnouncementRecord => item != null);

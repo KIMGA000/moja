@@ -186,6 +186,7 @@ export default function Home() {
             requiresEnrolled: false,
             interestCategories: [],
             descriptionTags: [],
+            plainSummary: null,
           }))
         );
       })

@@ -32,6 +32,45 @@ const TABLE_BY_SOURCE: Record<WelfareSource, string> = {
   youthCenter: "announcements_youth_center",
 };
 
+// 공고 원문을 자립준비청년이 바로 이해할 수 있는 한 문장으로 풀어 쓴다. Gemini 무료 티어를 쓰므로
+// 사용자 요청마다가 아니라 "동기화 시점에, 내용이 바뀐 공고만" 호출해서 호출 횟수를 낮게 유지한다
+// (syncSource의 재사용 로직 참고). 실패해도 동기화 자체는 계속 진행되도록 null을 반환한다.
+async function generatePlainSummary(servNm: string, servDgst: string): Promise<string | null> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+
+  const prompt =
+    "다음은 자립준비청년(보육원·위탁가정 등에서 자란 뒤 보호가 끝난 청년) 지원 공고문입니다. " +
+    "이 공고를 처음 보는 사람도 바로 이해할 수 있도록, 누가 받을 수 있고 무엇을 지원하는지 " +
+    "한 문장(공백 포함 60자 이내)의 쉬운 한국어로만 답하세요. 다른 설명 없이 문장 하나만 출력하세요.\n\n" +
+    `공고명: ${servNm}\n원문: ${servDgst}`;
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+      }
+    );
+    if (!res.ok) {
+      console.error("Gemini 요약 생성 실패", res.status, await res.text());
+      return null;
+    }
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined;
+    return text ? text.trim() : null;
+  } catch (err) {
+    console.error("Gemini 요약 생성 중 오류", err);
+    return null;
+  }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function toRow(item: WelfareItem) {
   const c = classifyItem(item);
   return {
@@ -75,13 +114,36 @@ async function syncSource(
 
   const table = TABLE_BY_SOURCE[source];
 
+  // AI 쉬운 요약(plain_summary)은 원문이 바뀌지 않았으면 재생성하지 않는다 — 무료 티어 호출
+  // 횟수를 아끼고, "비용이 사용자 수에 비례하면 안 된다"는 원칙을 동기화 빈도에도 적용한 것.
+  const { data: existingRows } = await supabase
+    .from(table)
+    .select("source_id, serv_dgst, plain_summary")
+    .in(
+      "source_id",
+      valid.map((item) => item.servId)
+    );
+  const existingBySourceId = new Map(
+    (existingRows ?? []).map((r) => [r.source_id as string, r as { serv_dgst: string | null; plain_summary: string | null }])
+  );
+
+  const rows = [];
+  for (const item of valid) {
+    const existing = existingBySourceId.get(item.servId);
+    let plainSummary = existing && existing.serv_dgst === (item.servDgst || null) ? existing.plain_summary : null;
+    if (!plainSummary && item.servDgst) {
+      plainSummary = await generatePlainSummary(item.servNm, item.servDgst);
+      if (process.env.GEMINI_API_KEY) await sleep(250); // 무료 티어 분당 호출 한도 여유 두기
+    }
+    rows.push({ ...toRow(item), plain_summary: plainSummary, review_status: "approved" });
+  }
+
   // 검수 UI가 아직 없어서, 동기화되는 공고는 신규·기존 구분 없이 매번 review_status를
   // 'approved'로 채워서 바로 노출한다 (라이브 API 미리보기와 같은 신뢰 수준). 예전엔 "이미
   // 존재하는 공고는 건드리지 않는다"는 규칙이 있었는데, 그 결과 최초 저장 시점에 이 로직이
   // 없었던(또는 다른 코드로 저장된) 공고가 pending에 영구히 갇히는 문제가 있었다 — 지금은
   // 검수 UI가 없어서 어차피 사람이 pending을 approved로 승격시킬 방법이 없으므로, 매번
   // approved로 덮어써서 이런 정체가 재발하지 않게 한다.
-  const rows = valid.map((item) => ({ ...toRow(item), review_status: "approved" }));
   const { error } = await supabase.from(table).upsert(rows, { onConflict: "source_id" });
   if (error) {
     return { fetched: rawFetchedCount, matched: candidateItems.length, skipped, upserted: 0, error: error.message };

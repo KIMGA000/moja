@@ -19,7 +19,7 @@ import {
 } from "../data/eligibility";
 import { matchRealItems, type EvaluatedRealItem } from "../data/realMatch";
 import { SOURCE_LABEL, type AnnouncementRecord, type WelfareItem } from "../data/apiPreview";
-import { isAlwaysOpenAnnouncement } from "../data/classify";
+import { isAlwaysOpenAnnouncement, formatDeadlineDisplay } from "../data/classify";
 import { logAnnouncementClick } from "../../lib/bookmarks";
 import {
   CARD_STYLE,
@@ -1099,6 +1099,18 @@ function DescriptionTags({ tags }: { tags: string[] }) {
   );
 }
 
+function PlainSummary({ text }: { text: string | null | undefined }) {
+  if (!text) return null;
+  return (
+    <p style={{ fontSize: "13px", color: COLORS.ink, marginTop: "8px", lineHeight: 1.5 }}>
+      <span style={{ ...pillBadge("lime"), fontSize: "10px", padding: "2px 7px", marginRight: "6px", verticalAlign: "1px" }}>
+        AI 요약
+      </span>
+      {text}
+    </p>
+  );
+}
+
 // "매칭 결과"(자격 판정) 말고, DB에 동기화된 공고를 조건 판정 없이 훑어보는 탭들이 공통으로 쓰는
 // 카드 목록. 지역/현재상태/관심분야는 명시적 필터라서 자격 판정(realMatch.ts)과 달리
 // "안 맞으면 숨김"이지 "그래서 못 받는다"는 판정이 아니다 — 그냥 찾아보기 편하라고 거르는 것뿐.
@@ -1147,7 +1159,8 @@ function AnnouncementListView({
               </p>
             </div>
             <DescriptionTags tags={item.descriptionTags} />
-            {item.deadline && <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>⏰ {item.deadline}</p>}
+            <PlainSummary text={item.plainSummary} />
+            {item.deadline && <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>⏰ {formatDeadlineDisplay(item.deadline)}</p>}
             <a
               href={item.link}
               target="_blank"
@@ -1565,8 +1578,9 @@ function RealItemCard({
       </div>
 
       <DescriptionTags tags={item.descriptionTags} />
+      <PlainSummary text={item.plainSummary} />
 
-      {item.deadline && <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>⏰ {item.deadline}</p>}
+      {item.deadline && <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>⏰ {formatDeadlineDisplay(item.deadline)}</p>}
 
       {item.reasons.map((reason, i) => (
         <p
