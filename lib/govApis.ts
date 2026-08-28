@@ -432,7 +432,45 @@ type YouthCenterPolicyRawItem = {
   aplyUrlAddr?: string;
   refUrlAddr1?: string;
   refUrlAddr2?: string;
+  zipCd?: string; // 시행 지역 법정동코드(쉼표로 여러 개), 앞 2자리가 시·도. "00"/빈 값이면 전국
 };
+
+// 법정동코드 앞 2자리 → 시·도. (classify.ts/realMatch.ts의 REGION_SHORT와 같은 전체 지명 표기로 맞춤)
+const ZIP_PREFIX_TO_REGION: Record<string, string> = {
+  "11": "서울특별시",
+  "26": "부산광역시",
+  "27": "대구광역시",
+  "28": "인천광역시",
+  "29": "광주광역시",
+  "30": "대전광역시",
+  "31": "울산광역시",
+  "36": "세종특별자치시",
+  "41": "경기도",
+  "42": "강원특별자치도",
+  "43": "충청북도",
+  "44": "충청남도",
+  "45": "전북특별자치도",
+  "46": "전라남도",
+  "47": "경상북도",
+  "48": "경상남도",
+  "50": "제주특별자치도",
+};
+
+// 기관명(sprvsnInstCdNm 등)이 "인구정책과"처럼 지역명 없이 부서명만 오는 경우가 있어서
+// 지역 필터가 항상 걸리진 않는다 — zipCd가 있으면 그걸로 지역을 보강한다. 여러 시·도에
+// 걸쳐 있으면(코드 앞 2자리가 다름) 사실상 전국급이라 보고 지역 한정을 안 건다.
+function regionFromZipCd(zipCd: string | undefined): string | undefined {
+  if (!zipCd) return undefined;
+  const codes = zipCd
+    .split(",")
+    .map((c) => c.trim())
+    .filter((c) => c && c !== "00");
+  if (codes.length === 0) return undefined;
+  const prefixes = new Set(codes.map((c) => c.slice(0, 2)));
+  if (prefixes.size !== 1) return undefined;
+  const [prefix] = prefixes;
+  return ZIP_PREFIX_TO_REGION[prefix];
+}
 
 function mapYouthCenterPolicyItem(raw: YouthCenterPolicyRawItem): WelfareItem {
   return {
@@ -441,6 +479,7 @@ function mapYouthCenterPolicyItem(raw: YouthCenterPolicyRawItem): WelfareItem {
     servNm: raw.plcyNm ?? "",
     servDgst: [raw.plcyExplnCn, raw.plcySprtCn].filter(Boolean).join(" · "),
     org: [raw.sprvsnInstCdNm, raw.operInstCdNm].filter(Boolean).join(" · "),
+    region: regionFromZipCd(raw.zipCd),
     themes: [raw.lclsfNm, raw.mclsfNm].filter((v): v is string => Boolean(v)),
     lifeStages: ["청년"],
     targetTraits: [raw.addAplyQlfcCndCn, raw.ptcpPrpTrgtCn].filter(Boolean).join(" · ") || undefined,
