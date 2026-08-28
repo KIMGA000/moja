@@ -35,9 +35,15 @@ const TABLE_BY_SOURCE: Record<WelfareSource, string> = {
 // 공고 원문을 자립준비청년이 바로 이해할 수 있는 한 문장으로 풀어 쓴다. Gemini 무료 티어를 쓰므로
 // 사용자 요청마다가 아니라 "동기화 시점에, 내용이 바뀐 공고만" 호출해서 호출 횟수를 낮게 유지한다
 // (syncSource의 재사용 로직 참고). 실패해도 동기화 자체는 계속 진행되도록 null을 반환한다.
+//
+// 무료 티어는 하루/분당 호출 한도가 있다. 한도에 걸리면(429) 이번 동기화 실행 동안은 더 이상
+// 호출을 시도하지 않는다 — 어차피 다 실패할 호출을 하나씩 재시도하며 시간을 낭비하지 않기 위해서.
+// 다음 동기화(다음 날 크론)에서 한도가 풀렸으면 자동으로 다시 시도된다.
+let geminiQuotaExhausted = false;
+
 async function generatePlainSummary(servNm: string, servDgst: string): Promise<string | null> {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey || geminiQuotaExhausted) return null;
 
   const prompt =
     "다음은 자립준비청년(보육원·위탁가정 등에서 자란 뒤 보호가 끝난 청년) 지원 공고문입니다. " +
@@ -54,6 +60,11 @@ async function generatePlainSummary(servNm: string, servDgst: string): Promise<s
         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
       }
     );
+    if (res.status === 429 || res.status === 403) {
+      console.error("Gemini 무료 티어 한도 도달 — 이번 동기화에서는 요약 생성을 건너뜀");
+      geminiQuotaExhausted = true;
+      return null;
+    }
     if (!res.ok) {
       console.error("Gemini 요약 생성 실패", res.status, await res.text());
       return null;
@@ -166,6 +177,10 @@ export async function GET(req: NextRequest) {
   if (!isAuthorizedCronRequest(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // 서버리스 인스턴스가 재사용(warm start)될 수 있어서, 지난 실행에서 한도에 걸렸어도
+  // 이번 실행에서는 다시 시도해본다 (하루 지나 한도가 풀렸을 수 있으므로).
+  geminiQuotaExhausted = false;
 
   const apiKey = process.env.WELFARE_API_KEY;
   if (!apiKey) {
