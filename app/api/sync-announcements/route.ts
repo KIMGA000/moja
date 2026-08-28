@@ -19,8 +19,9 @@ import {
 } from "../../../lib/govApis";
 
 export const dynamic = "force-dynamic";
-// AI 요약 호출이 Gemini 무료 티어 분당 한도에 맞춰 쉬어가며 진행되므로, 기본 10초보다 여유를 둔다.
-export const maxDuration = 60;
+// AI 요약 호출이 Gemini 무료 티어 분당 한도(RPM)에 맞춰 쉬어가며 진행되므로, 기본 10초보다
+// 훨씬 여유를 둔다. GEMINI_MAX_CALLS_PER_RUN × GEMINI_MIN_INTERVAL_MS보다 커야 한다.
+export const maxDuration = 280;
 
 // 소스별로 별도 테이블에 저장한다 (supabase/schema.sql 참고).
 const TABLE_BY_SOURCE: Record<WelfareSource, string> = {
@@ -40,11 +41,13 @@ const TABLE_BY_SOURCE: Record<WelfareSource, string> = {
 //      우리 쪽에서 먼저 멈춘다)
 //   2) 호출 사이에 GEMINI_MIN_INTERVAL_MS만큼 쉬어서 분당 호출 한도(RPM)를 넘지 않는다
 //   3) 그래도 429/403(한도 초과)이 오면 이번 실행에서는 더 이상 시도하지 않는다
-// "gemini-3.5-flash-lite"는 무료 티어 일일 한도(RPD)가 넉넉한 편이라 이 모델을 쓴다 — 한도가
-// 작은 모델(예: gemini-3.6-flash)로 바꾸지 말 것. 안 바뀐 공고는 재생성 안 하는 재사용 로직
-// (syncSource)과 합쳐지면 실사용 트래픽으로는 무료 한도에 닿을 일이 없다.
+// "gemini-3.5-flash-lite"는 무료 티어 일일 한도(RPD 500)가 넉넉한 편이라 이 모델을 쓴다 — 한도가
+// 작은 모델(예: gemini-3.6-flash, RPD 20)로 바꾸지 말 것. 안 바뀐 공고는 재생성 안 하는 재사용
+// 로직(syncSource)과 합쳐지면 실사용 트래픽으로는 무료 한도에 닿을 일이 없다.
+// 60번 × 4.2초 ≈ 252초로 분당 한도(RPM 15)를 넘지 않으면서 하루치 한도(RPD 500)의 12%만 쓴다 —
+// 기존 공고 88건을 며칠 안에 다 채우면서도 여전히 넉넉하게 여유가 남는 값이다.
 const GEMINI_MODEL = "gemini-3.5-flash-lite";
-const GEMINI_MAX_CALLS_PER_RUN = 8;
+const GEMINI_MAX_CALLS_PER_RUN = 60;
 const GEMINI_MIN_INTERVAL_MS = 4200; // 분당 15회 한도 기준으로 여유 있게
 
 let geminiQuotaExhausted = false;
