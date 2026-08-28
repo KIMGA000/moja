@@ -948,7 +948,7 @@ function PersonalStatusCard({ profile, todayIso }: { profile: OnboardingProfile;
     <section style={CARD_STYLE}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <p style={{ fontSize: "12px", color: COLORS.inkMuted, fontWeight: 700 }}>{status.title}</p>
-        <span style={pillBadge("violet")}>D-DAY</span>
+        <span style={pillBadge("violet")}>{status.dday}</span>
       </div>
       <p style={{ fontSize: "36px", fontWeight: 800, color: COLORS.accentStrong, marginTop: "10px" }}>
         {status.dday}
@@ -1512,6 +1512,15 @@ function IneligibleItemRow({ item }: { item: EvaluatedRealItem }) {
           {reason}
         </p>
       ))}
+      <a
+        href={item.link}
+        target="_blank"
+        rel="noreferrer"
+        onClick={() => logAnnouncementClick(item.source, item.servId)}
+        style={{ display: "inline-block", marginTop: "8px", fontSize: "12px", fontWeight: 700, color: COLORS.accentViolet, textDecoration: "none" }}
+      >
+        공식 안내 페이지 바로가기 →
+      </a>
     </div>
   );
 }
