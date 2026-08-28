@@ -19,6 +19,7 @@ export type Post = {
   body: string;
   author: string;
   badge: string | null;
+  userId: string | null;
   createdAt: number;
   commentCount: number;
 };
@@ -28,6 +29,7 @@ export type Comment = {
   postId: string;
   author: string;
   body: string;
+  userId: string | null;
   createdAt: number;
 };
 

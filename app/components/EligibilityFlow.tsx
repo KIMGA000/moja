@@ -1,19 +1,26 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  CURRENT_STATUS_LABEL,
+  EMPLOYMENT_STATUS_LABEL,
+  ENROLLMENT_STATUS_LABEL,
   INTEREST_CATEGORY_LABEL,
   PROGRAMS,
   PROTECTION_END_TYPE_LABEL,
-  type CurrentStatus,
+  addYears,
+  buildAgeInfo,
+  ddayLabel,
+  type EmploymentStatus,
+  type EnrollmentStatus,
   type InterestCategory,
   type OnboardingProfile,
   type ProtectionEndType,
   type YesNoUnknown,
 } from "../data/eligibility";
 import { matchRealItems, type EvaluatedRealItem } from "../data/realMatch";
-import { SOURCE_LABEL, type WelfareItem } from "../data/apiPreview";
+import { SOURCE_LABEL, type AnnouncementRecord, type WelfareItem } from "../data/apiPreview";
+import { isAlwaysOpenAnnouncement, formatDeadlineDisplay } from "../data/classify";
+import { logAnnouncementClick } from "../../lib/bookmarks";
 import {
   CARD_STYLE,
   COLORS,
@@ -80,21 +87,10 @@ function buildStepIds(profile: OnboardingProfile): StepId[] {
 }
 
 // ── 날짜 계산 유틸 (Q2 자동 계산 패널용) ─────────────────────────────
-function parseYearMonth(iso: string): { year: string; month: string } {
-  if (!iso) return { year: "", month: "" };
-  const [y, m] = iso.split("-");
-  return { year: y ?? "", month: m ?? "" };
-}
-
 function parseYearMonthDay(iso: string): { year: string; month: string; day: string } {
   if (!iso) return { year: "", month: "", day: "" };
   const [y, m, d] = iso.split("-");
   return { year: y ?? "", month: m ?? "", day: d ?? "" };
-}
-
-function toIsoFromYearMonth(year: string, month: string): string {
-  if (!year || !month) return "";
-  return `${year}-${month.padStart(2, "0")}-01`;
 }
 
 function toIsoFromYearMonthDay(year: string, month: string, day: string): string {
@@ -195,7 +191,7 @@ export function EligibilityOnboarding({
       case "endDate":
         return !!profile.protectionEndDate;
       case "status":
-        return !!profile.currentStatus;
+        return !!profile.enrollmentStatus && !!profile.employmentStatus;
       case "region":
         return !!profile.region;
       case "home":
@@ -281,7 +277,15 @@ export function EligibilityOnboarding({
             {(Object.keys(PROTECTION_END_TYPE_LABEL) as ProtectionEndType[]).map((t) => (
               <button
                 key={t}
-                onClick={() => update({ protectionEndType: t })}
+                onClick={() =>
+                  update({
+                    protectionEndType: t,
+                    // 유형이 바뀌면 이전 유형 기준으로 골랐던 종료일(나이)은 더 이상 맞지
+                    // 않으니 같이 지운다 — 안 지우면 다음 단계에서 이전 값이 그대로 남아있는
+                    // 것처럼 보이거나, 새 유형의 나이 선택지에 없는 값이 남을 수 있다.
+                    protectionEndDate: t === profile.protectionEndType ? profile.protectionEndDate : "",
+                  })
+                }
                 style={choiceButtonStyle(profile.protectionEndType === t)}
               >
                 {PROTECTION_END_TYPE_LABEL[t]}
@@ -310,15 +314,34 @@ export function EligibilityOnboarding({
       )}
 
       {stepId === "status" && (
-        <StepShell category={STEP_CATEGORY.status} badge="violet" title="현재 상태를 알려주세요">
+        <StepShell
+          category={STEP_CATEGORY.status}
+          badge="violet"
+          title="현재 상태를 알려주세요"
+          desc="재학 중이면서 취업한 경우도 있어서, 재학 여부와 취업 여부를 따로 골라주세요"
+        >
+          <p style={{ fontSize: "13px", fontWeight: 700, color: COLORS.ink, marginBottom: "10px" }}>재학 여부</p>
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {(Object.keys(CURRENT_STATUS_LABEL) as CurrentStatus[]).map((s) => (
+            {(Object.keys(ENROLLMENT_STATUS_LABEL) as EnrollmentStatus[]).map((s) => (
               <button
                 key={s}
-                onClick={() => update({ currentStatus: s })}
-                style={choiceButtonStyle(profile.currentStatus === s)}
+                onClick={() => update({ enrollmentStatus: s })}
+                style={choiceButtonStyle(profile.enrollmentStatus === s)}
               >
-                {CURRENT_STATUS_LABEL[s]}
+                {ENROLLMENT_STATUS_LABEL[s]}
+              </button>
+            ))}
+          </div>
+
+          <p style={{ fontSize: "13px", fontWeight: 700, color: COLORS.ink, margin: "22px 0 10px" }}>취업 상태</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            {(Object.keys(EMPLOYMENT_STATUS_LABEL) as EmploymentStatus[]).map((s) => (
+              <button
+                key={s}
+                onClick={() => update({ employmentStatus: s })}
+                style={choiceButtonStyle(profile.employmentStatus === s)}
+              >
+                {EMPLOYMENT_STATUS_LABEL[s]}
               </button>
             ))}
           </div>
@@ -526,6 +549,27 @@ function BirthDateStep({
   );
 }
 
+// AGE18_END("만 18세에 종료")만 생년월일에서 곧바로 정해지는 법정 날짜다(아동복지법 제38조).
+// 나머지 4개 유형은 실제 종료 시점이 개인 사정에 따라 달라서 생년월일만으로는 계산할 수
+// 없지만, "몇 살에 끝났는지"만 물어보면 그 나이 + 생년월일로 정확한 날짜를 자동 계산할 수
+// 있다 — 연/월을 직접 고르게 하는 것보다 입력 부담이 적고, AGE18_END와 계산 방식이 통일된다.
+// (연장보호의 나이 상한처럼 법적으로 딱 정해지지 않은 값은 넉넉한 선택 범위로 열어둔다.)
+const END_AGE_CONFIG: Record<Exclude<ProtectionEndType, "AGE18_END">, { question: string; ages: number[] }> = {
+  EARLY_END: { question: "몇 살에 조기 보호종료됐나요?", ages: [15, 16, 17] },
+  EXTENDED_END: {
+    question: "몇 살까지 연장보호를 받았나요?",
+    ages: [19, 20, 21, 22, 23, 24, 25, 26],
+  },
+  REPROTECTED_END: {
+    question: "재보호 후 몇 살에 다시 보호가 종료됐나요?",
+    ages: Array.from({ length: 12 }, (_, i) => 15 + i), // 15~26세
+  },
+  CURRENTLY_PROTECTED: {
+    question: "몇 살까지 보호받을 예정인가요?",
+    ages: Array.from({ length: 9 }, (_, i) => 18 + i), // 18~26세
+  },
+};
+
 function EndDateStep({
   profile,
   todayIso,
@@ -535,34 +579,44 @@ function EndDateStep({
   todayIso: string;
   onChange: (patch: Partial<OnboardingProfile>) => void;
 }) {
-  // BirthDateStep과 같은 이유로 로컬 state로 선택 상태를 따로 든다 (연도만 고른 시점에
-  // profile.protectionEndDate가 아직 ""라서 화면이 다시 placeholder로 되돌아가는 것 방지).
-  const initial = parseYearMonth(profile.protectionEndDate);
-  const [year, setYear] = useState(initial.year);
-  const [month, setMonth] = useState(initial.month);
+  const isAge18End = profile.protectionEndType === "AGE18_END";
+  const computedAge18Date = isAge18End && profile.birthDate ? addYearsIso(profile.birthDate, 18) : null;
+  const ageConfig =
+    profile.protectionEndType && profile.protectionEndType !== "AGE18_END"
+      ? END_AGE_CONFIG[profile.protectionEndType]
+      : null;
 
-  const currentYear = Number(todayIso.slice(0, 4));
-  // 과거(이미 종료) ~ 미래(만 18세 도달 예정) 양쪽을 넉넉히 포괄
-  const years = Array.from({ length: 31 }, (_, i) => String(currentYear + 10 - i));
-  const months = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+  // 이미 골라둔 종료일이 있으면(재방문·수정) 생년월일과의 연도 차이로 나이를 거꾸로 계산해서
+  // 선택 상태를 복원한다 — chooseAge가 항상 addYearsIso(생년월일, 나이)로 만든 날짜라 정확하다.
+  const initialAge =
+    profile.protectionEndDate && profile.birthDate
+      ? Number(profile.protectionEndDate.slice(0, 4)) - Number(profile.birthDate.slice(0, 4))
+      : null;
+  const [selectedAge, setSelectedAge] = useState<number | null>(initialAge);
 
-  const setPart = (part: "year" | "month", value: string) => {
-    const next = { year, month, [part]: value };
-    setYear(next.year);
-    setMonth(next.month);
-    onChange({ protectionEndDate: toIsoFromYearMonth(next.year, next.month) });
+  useEffect(() => {
+    if (computedAge18Date && profile.protectionEndDate !== computedAge18Date) {
+      onChange({ protectionEndDate: computedAge18Date });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [computedAge18Date]);
+
+  const chooseAge = (age: number) => {
+    setSelectedAge(age);
+    onChange({ protectionEndDate: profile.birthDate ? addYearsIso(profile.birthDate, age) ?? "" : "" });
   };
 
   const isFuture = !!profile.protectionEndDate && profile.protectionEndDate > todayIso;
   const remainingToEnd = isFuture ? monthsBetween(todayIso, profile.protectionEndDate) : null;
   const elapsed = !isFuture ? monthsBetween(profile.protectionEndDate, todayIso) : null;
   const dday5y = profile.protectionEndDate ? addYearsIso(profile.protectionEndDate, 5) : null;
-  const remainingTo5y = !isFuture && profile.protectionEndDate ? monthsBetween(todayIso, dday5y) : null;
+  // 예정일(CURRENTLY_PROTECTED)도 이미 고른 나이 기준으로 5년 기한을 미리 계산해서 보여준다 —
+  // 실제 종료일이 나중에 바뀌면 이 값도 같이 바뀐다는 걸 문구로 알려준다.
+  const remainingTo5y = profile.protectionEndDate && dday5y ? monthsBetween(todayIso, dday5y) : null;
 
-  const title =
-    profile.protectionEndType === "CURRENTLY_PROTECTED"
-      ? "보호종료 예정일이 언제인가요?"
-      : "보호가 끝난 때가 언제인가요?";
+  const title = isAge18End
+    ? "만 18세가 되는 시점을 자동 계산했어요"
+    : ageConfig?.question ?? "보호가 끝난 때가 언제인가요?";
 
   return (
     <>
@@ -570,26 +624,42 @@ function EndDateStep({
         category={STEP_CATEGORY.endDate}
         badge="violet"
         title={title}
-        desc="연도와 월만 고르면 돼요. 정확한 날짜는 몰라도 괜찮아요."
+        desc={
+          isAge18End
+            ? "만 18세 도달일은 법으로 정해져 있어서(아동복지법 제38조), 생년월일로 직접 계산했어요."
+            : "나이를 고르면 생년월일 기준으로 정확한 날짜를 자동으로 계산해요."
+        }
       >
-        <div style={{ display: "flex", gap: "12px" }}>
-          <select value={year} onChange={(e) => setPart("year", e.target.value)} style={{ ...inputStyle, flex: 1 }}>
-            <option value="">연도</option>
-            {years.map((y) => (
-              <option key={y} value={y}>
-                {y}년
-              </option>
+        {isAge18End ? (
+          <div
+            style={{
+              border: `1px solid ${COLORS.cardBorder}`,
+              borderRadius: "16px",
+              padding: "16px",
+              background: "#fafafa",
+              textAlign: "center",
+            }}
+          >
+            <p style={{ fontSize: "11px", fontWeight: 700, color: COLORS.inkMuted }}>
+              ● 자동 계산됨 — 생년월일 기준
+            </p>
+            <p style={{ fontSize: "22px", fontWeight: 800, color: COLORS.ink, marginTop: "8px" }}>
+              {computedAge18Date ? `${computedAge18Date.slice(0, 4)}년 ${Number(computedAge18Date.slice(5, 7))}월` : "－"}
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+            {ageConfig?.ages.map((age) => (
+              <button
+                key={age}
+                onClick={() => chooseAge(age)}
+                style={{ ...choiceButtonStyle(selectedAge === age), flex: "unset", padding: "12px 18px" }}
+              >
+                만 {age}세
+              </button>
             ))}
-          </select>
-          <select value={month} onChange={(e) => setPart("month", e.target.value)} style={{ ...inputStyle, flex: 1 }}>
-            <option value="">월</option>
-            {months.map((m) => (
-              <option key={m} value={m}>
-                {Number(m)}월
-              </option>
-            ))}
-          </select>
-        </div>
+          </div>
+        )}
 
         {profile.protectionEndDate && isFuture && (
           <div
@@ -604,12 +674,22 @@ function EndDateStep({
             <p style={{ fontSize: "11px", fontWeight: 700, color: COLORS.inkMuted }}>
               ● 자동 계산됨 — 직접 계산 안 하셔도 돼요
             </p>
-            <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "10px" }}>보호종료 예정까지</p>
-            <p style={{ fontSize: "22px", fontWeight: 800, color: COLORS.ink, marginTop: "2px" }}>
-              {formatDuration(remainingToEnd)}
-            </p>
+            <div style={{ display: "flex", gap: "16px", marginTop: "10px" }}>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: "12px", color: COLORS.inkMuted }}>보호종료 예정까지</p>
+                <p style={{ fontSize: "22px", fontWeight: 800, color: COLORS.ink, marginTop: "2px" }}>
+                  {formatDuration(remainingToEnd)}
+                </p>
+              </div>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: "12px", color: COLORS.inkMuted }}>5년 기한까지 (예정 기준)</p>
+                <p style={{ fontSize: "22px", fontWeight: 800, color: COLORS.ink, marginTop: "2px" }}>
+                  {formatDuration(remainingTo5y)}
+                </p>
+              </div>
+            </div>
             <p style={{ fontSize: "11px", color: COLORS.inkMuted, marginTop: "8px" }}>
-              5년 기한은 실제로 보호가 끝난 뒤부터 계산돼요.
+              실제 종료일이 확정되면 이 숫자는 바뀔 수 있어요 — 지금은 예정일 기준 계산이에요.
             </p>
           </div>
         )}
@@ -831,26 +911,419 @@ function groupIneligibleByReason(items: EvaluatedRealItem[]): { label: string; i
     .sort((a, b) => b.items.length - a.items.length);
 }
 
+type PersonalStatus = { title: string; dday: string; detail: string };
+
+// 로그인 여부와 무관하게 온보딩 답변만 있으면 계산 가능 — 로그인하면 이 답변이 계정에
+// 저장돼서 재방문 시에도 계속 같은 요약이 바로 뜨는 것뿐이다.
+function buildPersonalStatus(profile: OnboardingProfile, todayIso: string): PersonalStatus | null {
+  if (!profile.birthDate && !profile.protectionEndDate) return null;
+  const ageInfo = buildAgeInfo(profile, todayIso);
+
+  if (profile.protectionEndType === "CURRENTLY_PROTECTED") {
+    if (!profile.protectionEndDate) return null;
+    return {
+      title: "보호종료 예정까지",
+      dday: ddayLabel(profile.protectionEndDate, todayIso),
+      detail: `보호종료(예정)일: ${profile.protectionEndDate}`,
+    };
+  }
+
+  if (!ageInfo.anchorDate) return null;
+  const fiveYearDate = addYears(ageInfo.anchorDate, 5) ?? undefined;
+  const yearsPassed = ageInfo.yearsSinceAnchor;
+  return {
+    title: "자립준비청년 지원 자격 기준(5년)까지",
+    dday: ddayLabel(fiveYearDate, todayIso),
+    detail:
+      yearsPassed !== null
+        ? `보호종료(또는 만 18세) 후 약 ${yearsPassed.toFixed(1)}년 경과`
+        : "",
+  };
+}
+
+function PersonalStatusCard({ profile, todayIso }: { profile: OnboardingProfile; todayIso: string }) {
+  const status = buildPersonalStatus(profile, todayIso);
+  if (!status) return null;
+  return (
+    <section style={CARD_STYLE}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <p style={{ fontSize: "12px", color: COLORS.inkMuted, fontWeight: 700 }}>{status.title}</p>
+        <span style={pillBadge("violet")}>{status.dday}</span>
+      </div>
+      <p style={{ fontSize: "36px", fontWeight: 800, color: COLORS.accentStrong, marginTop: "10px" }}>
+        {status.dday}
+      </p>
+      {status.detail && (
+        <p
+          style={{
+            fontSize: "12px",
+            color: COLORS.inkMuted,
+            marginTop: "12px",
+            paddingTop: "12px",
+            borderTop: `1px solid ${COLORS.divider}`,
+          }}
+        >
+          {status.detail}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function PersonalProfileCard({
+  nickname,
+  profile,
+  onEditProfile,
+}: {
+  nickname: string;
+  profile: OnboardingProfile;
+  onEditProfile: () => void;
+}) {
+  const rows: { icon: string; label: string; value: string }[] = [];
+  if (profile.region) rows.push({ icon: "📍", label: "지역", value: profile.region });
+  if (profile.enrollmentStatus) {
+    rows.push({ icon: "🎓", label: "재학 여부", value: ENROLLMENT_STATUS_LABEL[profile.enrollmentStatus] });
+  }
+  if (profile.employmentStatus) {
+    rows.push({ icon: "💼", label: "취업 상태", value: EMPLOYMENT_STATUS_LABEL[profile.employmentStatus] });
+  }
+  if (profile.interestCategories.length > 0) {
+    rows.push({
+      icon: "❤️",
+      label: "관심분야",
+      value: profile.interestCategories.map((c) => INTEREST_CATEGORY_LABEL[c]).join(", "),
+    });
+  }
+  const receivedBenefits = profile.currentBenefits
+    .filter((id) => id !== "NONE" && id !== "UNKNOWN")
+    .map((id) => PROGRAMS.find((p) => p.id === id)?.name)
+    .filter((name): name is string => !!name);
+  if (receivedBenefits.length > 0) {
+    rows.push({ icon: "🎁", label: "받는 지원", value: receivedBenefits.join(", ") });
+  }
+
+  return (
+    <section style={CARD_STYLE}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <p style={{ fontSize: "16px", fontWeight: 800, color: COLORS.ink }}>{nickname}님의 자립 현황</p>
+        <button
+          onClick={onEditProfile}
+          style={{ ...pillBadge("neutral"), border: "none", cursor: "pointer" }}
+        >
+          정보 수정
+        </button>
+      </div>
+      {rows.length > 0 && (
+        <div style={{ marginTop: "16px" }}>
+          {rows.map((row, i) => (
+            <div
+              key={row.label}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                padding: "12px 0",
+                borderTop: i === 0 ? "none" : `1px solid ${COLORS.divider}`,
+              }}
+            >
+              <span style={{ fontSize: "16px" }}>{row.icon}</span>
+              <span
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  color: COLORS.inkMuted,
+                  width: "64px",
+                  flexShrink: 0,
+                }}
+              >
+                {row.label}
+              </span>
+              <span style={{ fontSize: "13px", fontWeight: 700, color: COLORS.ink }}>{row.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function tabButtonStyle(active: boolean) {
+  return {
+    padding: "10px 16px",
+    borderRadius: "999px",
+    border: `1.5px solid ${active ? COLORS.ink : COLORS.cardBorder}`,
+    background: active ? COLORS.ink : "#ffffff",
+    color: active ? "#ffffff" : COLORS.inkMuted,
+    fontSize: "13px",
+    fontWeight: 700,
+  } as const;
+}
+
+// 메인 탭(매칭 결과/전체 공고 보기/지역별 보기 ...) 안에서 다시 고르는 서브 필터(지역명/상태/관심분야
+// 하나) 버튼. tabButtonStyle과 똑같이 생기면 "탭 안에 탭이 또 있다"는 게 눈에 안 들어와서, 더 작고
+// 옅은 톤(보라색 계열)으로 한 단계 낮춰서 메인 탭과 위계가 구분되게 한다.
+function subTabButtonStyle(active: boolean) {
+  return {
+    padding: "7px 12px",
+    borderRadius: "999px",
+    border: `1px solid ${active ? COLORS.accentViolet : COLORS.cardBorder}`,
+    background: active ? COLORS.accentVioletBg : "#ffffff",
+    color: active ? COLORS.accentViolet : COLORS.inkMuted,
+    fontSize: "12px",
+    fontWeight: 700,
+  } as const;
+}
+
+// 공고 설명 원문이 법조문투 긴 문단이라 한눈에 읽기 어려워서, classify.ts가 미리 찾아둔
+// 핵심 키워드를 #태그로 붙여 빠르게 훑어볼 수 있게 한다 (원문 문단은 그대로 두고 보조용으로만).
+function DescriptionTags({ tags }: { tags: string[] }) {
+  if (tags.length === 0) return null;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "8px" }}>
+      {tags.map((tag) => (
+        <span
+          key={tag}
+          style={{
+            fontSize: "11px",
+            fontWeight: 700,
+            padding: "3px 9px",
+            borderRadius: "999px",
+            background: COLORS.neutralBg,
+            color: COLORS.neutral,
+          }}
+        >
+          #{tag}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function PlainSummary({ text }: { text: string | null | undefined }) {
+  if (!text) return null;
+  return (
+    <p style={{ fontSize: "13px", color: COLORS.ink, marginTop: "8px", lineHeight: 1.5 }}>
+      <span style={{ ...pillBadge("lime"), fontSize: "10px", padding: "2px 7px", marginRight: "6px", verticalAlign: "1px" }}>
+        AI 요약
+      </span>
+      {text}
+    </p>
+  );
+}
+
+// "매칭 결과"(자격 판정) 말고, DB에 동기화된 공고를 조건 판정 없이 훑어보는 탭들이 공통으로 쓰는
+// 카드 목록. 지역/현재상태/관심분야는 명시적 필터라서 자격 판정(realMatch.ts)과 달리
+// "안 맞으면 숨김"이지 "그래서 못 받는다"는 판정이 아니다 — 그냥 찾아보기 편하라고 거르는 것뿐.
+function AnnouncementListView({
+  items,
+  bookmarkedKeys,
+  onToggleBookmark,
+}: {
+  items: AnnouncementRecord[];
+  bookmarkedKeys?: Set<string>;
+  onToggleBookmark?: (source: string, sourceId: string) => void;
+}) {
+  const isBookmarked = (source: string, sourceId: string) => bookmarkedKeys?.has(`${source}:${sourceId}`) ?? false;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+      <p style={{ fontSize: "12px", color: COLORS.inkMuted }}>{items.length}건</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        {items.length === 0 && (
+          <p style={{ fontSize: "13px", color: COLORS.onDarkMuted }}>조건에 맞는 공고가 없어요.</p>
+        )}
+        {items.map((item, i) => (
+          <section key={`${item.source}-${item.servId}-${i}`} style={{ ...CARD_STYLE, padding: "22px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                <span style={pillBadge("violet")}>{SOURCE_LABEL[item.source]}</span>
+                <span style={pillBadge(isAlwaysOpenAnnouncement(item.deadline) ? "lime" : "neutral")}>
+                  {isAlwaysOpenAnnouncement(item.deadline) ? "상시" : "기간"}
+                </span>
+              </div>
+              {onToggleBookmark && (
+                <button
+                  onClick={() => onToggleBookmark(item.source, item.servId)}
+                  aria-label="관심공고 등록"
+                  style={{ background: "none", border: "none", fontSize: "20px", lineHeight: 1, color: COLORS.ink, padding: 0 }}
+                >
+                  {isBookmarked(item.source, item.servId) ? "⭐" : "☆"}
+                </button>
+              )}
+            </div>
+            <div style={{ marginTop: "10px" }}>
+              <p style={{ fontSize: "16px", fontWeight: 800, color: COLORS.ink }}>{item.servNm}</p>
+              <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "2px" }}>
+                {item.org}
+                {item.region && ` · ${item.region}`}
+              </p>
+            </div>
+            <DescriptionTags tags={item.descriptionTags} />
+            <PlainSummary text={item.plainSummary} />
+            {item.deadline && <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>⏰ {formatDeadlineDisplay(item.deadline)}</p>}
+            <a
+              href={item.link}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => logAnnouncementClick(item.source, item.servId)}
+              style={{ display: "inline-block", marginTop: "12px", fontSize: "13px", fontWeight: 700, color: COLORS.accentViolet, textDecoration: "none" }}
+            >
+              공식 안내 페이지 바로가기 →
+            </a>
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+type BrowseMode = "all" | "region" | "status" | "interest" | "period";
+
+function AnnouncementBrowser({
+  mode,
+  items,
+  profile,
+  bookmarkedKeys,
+  onToggleBookmark,
+}: {
+  mode: BrowseMode;
+  items: AnnouncementRecord[];
+  profile: OnboardingProfile;
+  bookmarkedKeys?: Set<string>;
+  onToggleBookmark?: (source: string, sourceId: string) => void;
+}) {
+  const [region, setRegion] = useState<string>(profile.region || REGIONS[0]);
+  const [status, setStatus] = useState<EnrollmentStatus>(profile.enrollmentStatus ?? "UNIV");
+  const [interestFilter, setInterestFilter] = useState<Set<InterestCategory>>(
+    () => new Set(profile.interestCategories)
+  );
+  const [periodFilter, setPeriodFilter] = useState<"always" | "fixed">("always");
+
+  const toggleInterest = (category: InterestCategory) => {
+    setInterestFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  };
+
+  const filtered = items.filter((item) => {
+    if (mode === "region" && item.regionScope && item.regionScope !== region) return false;
+    if (mode === "status") {
+      const needsEnrolled = status === "UNIV" || status === "GRAD";
+      if (item.requiresEnrolled !== needsEnrolled) return false;
+    }
+    if (mode === "interest" && interestFilter.size > 0) {
+      if (!item.interestCategories.some((c) => interestFilter.has(c as InterestCategory))) return false;
+    }
+    if (mode === "period") {
+      const alwaysOpen = isAlwaysOpenAnnouncement(item.deadline);
+      if (periodFilter === "always" && !alwaysOpen) return false;
+      if (periodFilter === "fixed" && alwaysOpen) return false;
+    }
+    return true;
+  });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+      {mode === "region" && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+          {REGIONS.map((r) => (
+            <button key={r} onClick={() => setRegion(r)} style={subTabButtonStyle(region === r)}>
+              {r}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {mode === "status" && (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+            {(Object.keys(ENROLLMENT_STATUS_LABEL) as EnrollmentStatus[]).map((s) => (
+              <button key={s} onClick={() => setStatus(s)} style={subTabButtonStyle(status === s)}>
+                {ENROLLMENT_STATUS_LABEL[s]}
+              </button>
+            ))}
+          </div>
+          <p style={{ fontSize: "11px", color: COLORS.inkMuted }}>
+            ⚠️ 공고 원문에 "재학·등록금·학자금" 언급이 있는지만 구분할 수 있어서, 재학 요건이 없는
+            공고를 찾을 때보다는 재학 관련 공고를 찾을 때 특히 유용해요.
+          </p>
+        </>
+      )}
+
+      {mode === "interest" && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+          {(Object.keys(INTEREST_CATEGORY_LABEL) as InterestCategory[]).map((category) => (
+            <button
+              key={category}
+              onClick={() => toggleInterest(category)}
+              style={subTabButtonStyle(interestFilter.has(category))}
+            >
+              {INTEREST_CATEGORY_LABEL[category]}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {mode === "period" && (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+            <button onClick={() => setPeriodFilter("always")} style={subTabButtonStyle(periodFilter === "always")}>
+              상시 공고
+            </button>
+            <button onClick={() => setPeriodFilter("fixed")} style={subTabButtonStyle(periodFilter === "fixed")}>
+              기간 공고
+            </button>
+          </div>
+          <p style={{ fontSize: "11px", color: COLORS.inkMuted }}>
+            {periodFilter === "always"
+              ? "정해진 접수기간 없이 언제든 신청할 수 있는 공고예요."
+              : "접수기간·마감일이 정해져 있는 공고예요. 마감일을 놓치지 않게 확인해주세요."}
+          </p>
+        </>
+      )}
+
+      <AnnouncementListView items={filtered} bookmarkedKeys={bookmarkedKeys} onToggleBookmark={onToggleBookmark} />
+    </div>
+  );
+}
+
 export function EligibilityResultScreen({
   profile,
   todayIso,
   items,
   loading,
   error,
+  nickname,
   onEditProfile,
   onBack,
+  hideFooterActions,
+  bookmarkedKeys,
+  onToggleBookmark,
 }: {
   profile: OnboardingProfile;
   todayIso: string;
-  items: WelfareItem[] | null;
+  items: AnnouncementRecord[] | null;
   loading: boolean;
   error: string | null;
+  nickname?: string | null;
   onEditProfile: () => void;
   onBack: () => void;
+  hideFooterActions?: boolean;
+  bookmarkedKeys?: Set<string>;
+  onToggleBookmark?: (source: string, sourceId: string) => void;
 }) {
   const summary = useMemo(
     () => (items ? matchRealItems(items, profile, todayIso) : null),
     [items, profile, todayIso]
+  );
+  const [viewTab, setViewTab] = useState<"matched" | "bookmarked" | BrowseMode>("matched");
+  const isBookmarked = (source: string, sourceId: string) => bookmarkedKeys?.has(`${source}:${sourceId}`) ?? false;
+  const bookmarkedItems = useMemo(
+    () => (items ?? []).filter((item) => isBookmarked(item.source, item.servId)),
+    [items, bookmarkedKeys]
   );
 
   if (loading || !summary) {
@@ -870,19 +1343,87 @@ export function EligibilityResultScreen({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "22px", animation: "fadeIn 0.3s" }}>
-      <section style={{ ...CARD_STYLE, textAlign: "center" }}>
-        <p style={{ fontSize: "13px", color: COLORS.inkMuted, fontWeight: 700 }}>
-          자격 매칭 결과 (공공데이터 기준 · 주기적으로 갱신)
+      {nickname ? (
+        <>
+          <PersonalProfileCard nickname={nickname} profile={profile} onEditProfile={onEditProfile} />
+          <PersonalStatusCard profile={profile} todayIso={todayIso} />
+        </>
+      ) : (
+        <p style={{ fontSize: "12px", color: COLORS.inkMuted, textAlign: "center" }}>
+          💡 로그인하면 이 진단 결과가 저장되고, 보호종료까지 남은 기간 같은 정보도 더 개인화해서
+          보여드려요. 관심공고 저장, 지역·현재상태·관심분야·상시기간별로 공고를 걸러보는 기능도
+          로그인하면 쓸 수 있어요.
         </p>
-        <h2 style={{ fontSize: "26px", fontWeight: 800, color: COLORS.ink, marginTop: "8px" }}>
-          가능성 높은 지원 {summary.eligible.length}개
+      )}
+
+      <section style={CARD_STYLE}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <p style={{ fontSize: "13px", color: COLORS.inkMuted, fontWeight: 700 }}>
+            자격 매칭 결과 (공공데이터 기준 · 주기적으로 갱신)
+          </p>
+          <span style={pillBadge("success")}>{summary.eligible.length}개</span>
+        </div>
+        <h2 style={{ fontSize: "26px", fontWeight: 800, color: COLORS.ink, marginTop: "10px" }}>
+          가능성 높은 지원
         </h2>
-        <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>
+        <p
+          style={{
+            fontSize: "12px",
+            color: COLORS.inkMuted,
+            marginTop: "12px",
+            paddingTop: "12px",
+            borderTop: `1px solid ${COLORS.divider}`,
+          }}
+        >
           공고 원문 텍스트에서 조건을 추정한 결과라 확정 판정이 아니에요. 최종 자격은 담당
           자립지원전담기관에서 꼭 다시 확인해주세요.
         </p>
       </section>
 
+      {nickname && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
+          <button onClick={() => setViewTab("matched")} style={tabButtonStyle(viewTab === "matched")}>
+            매칭 결과
+          </button>
+          {onToggleBookmark && (
+            <button onClick={() => setViewTab("bookmarked")} style={tabButtonStyle(viewTab === "bookmarked")}>
+              ⭐ 관심공고
+            </button>
+          )}
+          <button onClick={() => setViewTab("all")} style={tabButtonStyle(viewTab === "all")}>
+            전체 공고 보기
+          </button>
+          <button onClick={() => setViewTab("region")} style={tabButtonStyle(viewTab === "region")}>
+            지역별 보기
+          </button>
+          <button onClick={() => setViewTab("status")} style={tabButtonStyle(viewTab === "status")}>
+            현재상태별 보기
+          </button>
+          <button onClick={() => setViewTab("interest")} style={tabButtonStyle(viewTab === "interest")}>
+            관심분야로 보기
+          </button>
+          <button onClick={() => setViewTab("period")} style={tabButtonStyle(viewTab === "period")}>
+            상시/기간별 보기
+          </button>
+        </div>
+      )}
+
+      {nickname && viewTab === "bookmarked" && (
+        <AnnouncementListView items={bookmarkedItems} bookmarkedKeys={bookmarkedKeys} onToggleBookmark={onToggleBookmark} />
+      )}
+
+      {nickname && viewTab !== "matched" && viewTab !== "bookmarked" && (
+        <AnnouncementBrowser
+          mode={viewTab}
+          items={items ?? []}
+          profile={profile}
+          bookmarkedKeys={bookmarkedKeys}
+          onToggleBookmark={onToggleBookmark}
+        />
+      )}
+
+      {(!nickname || viewTab === "matched") && (
+        <>
       <section>
         <h3 style={{ fontSize: "14px", fontWeight: 800, color: COLORS.success, marginBottom: "12px" }}>
           가능성 높은 지원 ({summary.eligible.length})
@@ -891,9 +1432,16 @@ export function EligibilityResultScreen({
           {summary.eligible.length === 0 && (
             <p style={{ fontSize: "13px", color: COLORS.onDarkMuted }}>조건에 맞는 지원을 찾지 못했어요.</p>
           )}
-          {summary.eligible.map((item, i) => (
-            <RealItemCard key={`${item.source}-${item.servId}-${i}`} item={item} tone="eligible" />
-          ))}
+          {summary.eligible
+            .map((item, i) => (
+              <RealItemCard
+                key={`${item.source}-${item.servId}-${i}`}
+                item={item}
+                tone="eligible"
+                bookmarked={onToggleBookmark ? isBookmarked(item.source, item.servId) : undefined}
+                onToggleBookmark={onToggleBookmark ? () => onToggleBookmark(item.source, item.servId) : undefined}
+              />
+            ))}
         </div>
       </section>
 
@@ -903,9 +1451,16 @@ export function EligibilityResultScreen({
             확인이 필요한 지원 ({summary.uncertain.length})
           </h3>
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-            {summary.uncertain.map((item, i) => (
-              <RealItemCard key={`${item.source}-${item.servId}-${i}`} item={item} tone="uncertain" />
-            ))}
+            {summary.uncertain
+              .map((item, i) => (
+                <RealItemCard
+                  key={`${item.source}-${item.servId}-${i}`}
+                  item={item}
+                  tone="uncertain"
+                  bookmarked={onToggleBookmark ? isBookmarked(item.source, item.servId) : undefined}
+                  onToggleBookmark={onToggleBookmark ? () => onToggleBookmark(item.source, item.servId) : undefined}
+                />
+              ))}
           </div>
         </section>
       )}
@@ -940,13 +1495,19 @@ export function EligibilityResultScreen({
           </div>
         </section>
       )}
+        </>
+      )}
 
-      <button onClick={onEditProfile} style={GHOST_BUTTON_ON_DARK}>
-        조건 다시 입력하기
-      </button>
-      <button onClick={onBack} style={{ ...GHOST_BUTTON_ON_DARK, border: "none" }}>
-        처음으로
-      </button>
+      {!hideFooterActions && (
+        <>
+          <button onClick={onEditProfile} style={GHOST_BUTTON_ON_DARK}>
+            조건 다시 입력하기
+          </button>
+          <button onClick={onBack} style={{ ...GHOST_BUTTON_ON_DARK, border: "none" }}>
+            처음으로
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -964,6 +1525,15 @@ function IneligibleItemRow({ item }: { item: EvaluatedRealItem }) {
           {reason}
         </p>
       ))}
+      <a
+        href={item.link}
+        target="_blank"
+        rel="noreferrer"
+        onClick={() => logAnnouncementClick(item.source, item.servId)}
+        style={{ display: "inline-block", marginTop: "8px", fontSize: "12px", fontWeight: 700, color: COLORS.accentViolet, textDecoration: "none" }}
+      >
+        공식 안내 페이지 바로가기 →
+      </a>
     </div>
   );
 }
@@ -971,9 +1541,13 @@ function IneligibleItemRow({ item }: { item: EvaluatedRealItem }) {
 function RealItemCard({
   item,
   tone,
+  bookmarked,
+  onToggleBookmark,
 }: {
-  item: EvaluatedRealItem;
+  item: EvaluatedRealItem<AnnouncementRecord>;
   tone: "eligible" | "uncertain";
+  bookmarked?: boolean;
+  onToggleBookmark?: () => void;
 }) {
   const toneStyle = {
     eligible: { border: "#bbf7d0", badge: pillBadge("success" as const) },
@@ -982,7 +1556,18 @@ function RealItemCard({
 
   return (
     <section style={{ ...CARD_STYLE, padding: "22px", border: `1px solid ${toneStyle.border}` }}>
-      <span style={pillBadge("violet")}>{SOURCE_LABEL[item.source]}</span>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <span style={pillBadge("violet")}>{SOURCE_LABEL[item.source]}</span>
+        {onToggleBookmark && (
+          <button
+            onClick={onToggleBookmark}
+            aria-label="관심공고 등록"
+            style={{ background: "none", border: "none", fontSize: "20px", lineHeight: 1, color: COLORS.ink, padding: 0 }}
+          >
+            {bookmarked ? "⭐" : "☆"}
+          </button>
+        )}
+      </div>
 
       <div style={{ marginTop: "10px" }}>
         <p style={{ fontSize: "16px", fontWeight: 800, color: COLORS.ink }}>{item.servNm}</p>
@@ -992,9 +1577,10 @@ function RealItemCard({
         </p>
       </div>
 
-      <p style={{ fontSize: "13px", color: "#3f3f46", marginTop: "10px", lineHeight: 1.6 }}>{item.servDgst}</p>
+      <DescriptionTags tags={item.descriptionTags} />
+      <PlainSummary text={item.plainSummary} />
 
-      {item.deadline && <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>⏰ {item.deadline}</p>}
+      {item.deadline && <p style={{ fontSize: "12px", color: COLORS.inkMuted, marginTop: "8px" }}>⏰ {formatDeadlineDisplay(item.deadline)}</p>}
 
       {item.reasons.map((reason, i) => (
         <p
@@ -1016,6 +1602,7 @@ function RealItemCard({
         href={item.link}
         target="_blank"
         rel="noreferrer"
+        onClick={() => logAnnouncementClick(item.source, item.servId)}
         style={{
           display: "inline-block",
           marginTop: "12px",

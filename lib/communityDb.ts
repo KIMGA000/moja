@@ -12,6 +12,7 @@ type PostRow = {
   body: string;
   author: string;
   badge: string | null;
+  user_id: string | null;
   created_at: string;
 };
 
@@ -20,6 +21,7 @@ type CommentRow = {
   post_id: string;
   author: string;
   body: string;
+  user_id: string | null;
   created_at: string;
 };
 
@@ -36,6 +38,7 @@ function toPost(row: PostRow, commentCount: number): Post {
     body: row.body,
     author: row.author,
     badge: row.badge,
+    userId: row.user_id,
     createdAt: new Date(row.created_at).getTime(),
     commentCount,
   };
@@ -47,6 +50,7 @@ function toComment(row: CommentRow): Comment {
     postId: row.post_id,
     author: row.author,
     body: row.body,
+    userId: row.user_id,
     createdAt: new Date(row.created_at).getTime(),
   };
 }
@@ -75,29 +79,6 @@ export async function listPosts(category: string | null): Promise<Post[]> {
   return posts.map((row) => toPost(row, counts.get(row.id) ?? 0));
 }
 
-export async function createPost(input: {
-  category: Category;
-  title: string;
-  body: string;
-  author: string;
-  badge: string | null;
-}): Promise<Post> {
-  const db = requireSupabase();
-  const { data, error } = await db
-    .from("community_posts")
-    .insert({
-      category: input.category,
-      title: input.title,
-      body: input.body,
-      author: input.author,
-      badge: input.badge,
-    })
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
-  return toPost(data as PostRow, 0);
-}
-
 export async function getPostWithComments(
   id: string
 ): Promise<{ post: Post; comments: Comment[] } | null> {
@@ -120,27 +101,4 @@ export async function getPostWithComments(
 
   const comments = ((commentRows ?? []) as CommentRow[]).map(toComment);
   return { post: toPost(postRow as PostRow, comments.length), comments };
-}
-
-export async function addComment(
-  postId: string,
-  input: { author: string; body: string }
-): Promise<Comment> {
-  const db = requireSupabase();
-
-  const { data: postRow, error: postError } = await db
-    .from("community_posts")
-    .select("id")
-    .eq("id", postId)
-    .maybeSingle();
-  if (postError) throw new Error(postError.message);
-  if (!postRow) throw new Error("게시글을 찾을 수 없습니다.");
-
-  const { data, error } = await db
-    .from("community_comments")
-    .insert({ post_id: postId, author: input.author, body: input.body })
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
-  return toComment(data as CommentRow);
 }

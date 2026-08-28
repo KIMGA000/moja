@@ -50,6 +50,20 @@ export type WelfareItem = {
   link: string;
 };
 
+// DB(announcements_all)에서 읽어올 때는 raw_data(WelfareItem)에 classify.ts가 저장 시점에
+// 미리 계산해둔 분류 컬럼이 같이 붙어서 온다 — "내 지역만"/"재학생 전용"/"관심분야" 같은 명시적
+// 필터는 이 컬럼 기준으로 걸고, 자격 진단 자체(realMatch.ts)는 지금처럼 원문 텍스트 기준을 유지한다.
+export type AnnouncementRecord = WelfareItem & {
+  regionScope: string | null;
+  requiresEnrolled: boolean;
+  interestCategories: string[];
+  descriptionTags: string[];
+  // 공고 원문(servDgst)을 AI(Gemini)가 한 문장으로 쉽게 풀어 쓴 요약. 동기화 시점에 한 번만
+  // 생성해서 DB에 저장해두고 재사용한다 (app/api/sync-announcements/route.ts 참고).
+  // 생성 실패나 원문 없음 등으로 아직 없을 수 있어서 null 허용.
+  plainSummary: string | null;
+};
+
 export const API_SAMPLE_ITEMS: WelfareItem[] = [
   {
     source: "central",

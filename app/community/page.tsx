@@ -10,10 +10,12 @@ import {
   type Category,
   type Post,
 } from "../data/community";
+import { useAuthSession } from "../hooks/useAuthSession";
 
 type Filter = "all" | Category;
 
 export default function CommunityPage() {
+  const { session } = useAuthSession();
   const [filter, setFilter] = useState<Filter>("all");
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,20 +35,30 @@ export default function CommunityPage() {
           <Link href="/" style={{ fontSize: "14px", fontWeight: 700, color: COLORS.onDarkMuted, textDecoration: "none" }}>
             ← 처음으로
           </Link>
-          <Link
-            href="/community/write"
-            style={{
-              fontSize: "14px",
-              fontWeight: 700,
-              color: "#ffffff",
-              background: COLORS.ink,
-              padding: "10px 18px",
-              borderRadius: "999px",
-              textDecoration: "none",
-            }}
-          >
-            ✏️ 글쓰기
-          </Link>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+            {session && (
+              <Link
+                href="/community/mine"
+                style={{ fontSize: "13px", fontWeight: 700, color: COLORS.onDarkMuted, textDecoration: "none" }}
+              >
+                내 활동
+              </Link>
+            )}
+            <Link
+              href="/community/write"
+              style={{
+                fontSize: "14px",
+                fontWeight: 700,
+                color: "#ffffff",
+                background: COLORS.ink,
+                padding: "10px 18px",
+                borderRadius: "999px",
+                textDecoration: "none",
+              }}
+            >
+              ✏️ 글쓰기
+            </Link>
+          </div>
         </div>
 
         <header style={{ marginBottom: "20px" }}>
@@ -55,7 +67,7 @@ export default function CommunityPage() {
             같은 처지의 이야기
           </h1>
           <p style={{ fontSize: "13px", color: COLORS.onDarkMuted, marginTop: "6px" }}>
-            로그인 없이 익명 닉네임으로 글을 쓰고 볼 수 있어요.
+            둘러보는 건 누구나 자유롭게, 글쓰기·댓글은 로그인 후에 할 수 있어요.
           </p>
         </header>
 

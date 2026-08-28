@@ -8,15 +8,15 @@ import type { WelfareItem } from "./apiPreview";
 
 export type RealVerdict = "ELIGIBLE" | "INELIGIBLE" | "UNCERTAIN";
 
-export type EvaluatedRealItem = WelfareItem & {
+export type EvaluatedRealItem<T extends WelfareItem = WelfareItem> = T & {
   verdict: RealVerdict;
   reasons: string[];
 };
 
-export type RealMatchSummary = {
-  eligible: EvaluatedRealItem[];
-  uncertain: EvaluatedRealItem[];
-  ineligible: EvaluatedRealItem[];
+export type RealMatchSummary<T extends WelfareItem = WelfareItem> = {
+  eligible: EvaluatedRealItem<T>[];
+  uncertain: EvaluatedRealItem<T>[];
+  ineligible: EvaluatedRealItem<T>[];
 };
 
 const REGION_SHORT: Record<string, string> = {
@@ -100,8 +100,8 @@ function educationCheck(
 ): { verdict: RealVerdict; note?: string } | null {
   const eduKeywords = ["등록금", "학자금", "장학금", "대학생"];
   if (!eduKeywords.some((kw) => text.includes(kw))) return null;
-  if (profile.currentStatus === "UNIV" || profile.currentStatus === "GRAD") return null;
-  if (profile.currentStatus === null) {
+  if (profile.enrollmentStatus === "UNIV" || profile.enrollmentStatus === "GRAD") return null;
+  if (profile.enrollmentStatus === null) {
     return { verdict: "UNCERTAIN", note: "재학 여부에 따라 대상이 갈려요" };
   }
   return { verdict: "INELIGIBLE", note: "재학 중이어야 신청 가능해 보여요 (현재 미재학)" };
@@ -152,14 +152,14 @@ function duplicateNote(item: WelfareItem, profile: OnboardingProfile): string | 
   return null;
 }
 
-export function matchRealItems(
-  items: WelfareItem[],
+export function matchRealItems<T extends WelfareItem>(
+  items: T[],
   profile: OnboardingProfile,
   todayIso: string
-): RealMatchSummary {
+): RealMatchSummary<T> {
   const ageInfo = buildAgeInfo(profile, todayIso);
 
-  const evaluated: EvaluatedRealItem[] = items.map((item) => {
+  const evaluated: EvaluatedRealItem<T>[] = items.map((item) => {
     const text = `${item.servNm} ${item.servDgst} ${item.targetTraits ?? ""}`;
     const reasons: string[] = [];
     let verdict: RealVerdict = "ELIGIBLE";
